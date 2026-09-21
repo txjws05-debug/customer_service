@@ -1,6 +1,8 @@
 import asyncio
 from httpx import  AsyncClient
-from openai import http_client | None=None
+from openai import http_client
+
+http_client:AsyncClient|None=None
 
 #初始化方法
 def init_http_client():
