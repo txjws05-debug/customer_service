@@ -10,7 +10,7 @@ class FlowSlot:
     description: str=""
 @dataclass
 class Flow:
-    id :str =""
+    id :str
     description: str=""
     steps: list[FlowStep] = field(default_factory=list)
     slots: list[FlowSlot]= field(default_factory=list)
