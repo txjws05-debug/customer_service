@@ -13,6 +13,9 @@ async def get_session():
 async def get_dialogue_engine():
     return DialogueEngine()
 
+async def get_dialogue_repository(session: AsyncSession=Depends(get_session)):
+    return DialogueRepository(session=session)
+
 async def get_dialogue_service(
         dialogue_repository:DialogueRepository=Depends(get_dialogue_repository),
         dialogue_engine:DialogueEngine=Depends(get_dialogue_engine)):

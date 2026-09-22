@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     #商城 API
     commerce_api_key_base_url:str
+    commerce_api_base_url: str
 
     #服务器
     app_host:str
