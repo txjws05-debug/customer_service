@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import yaml
+from langchain_core._api import path
 
 from ws.task.flow.models import Flow, FlowCatalog, FlowSlot
 from ws.task.flow.steps import FlowStep
@@ -58,7 +59,16 @@ def loader (self,paths: list[Path])-> FlowLoader:
         slots.update(catalog.slots)
     return FlowCatalog(flows=flows,slots=slots)
 
+def loader_many(self,paths:list[Path])-> FlowCatalog:
+    flows:dict[str,Flow]={}
+    slots:dict[str,FlowSlot]={}
 
+    for path in paths:
+        catalog=self.load(path)
+        #dict用update合并（list 合并用extend，注意区别）
+        flows.update(catalog.flows)
+        slots.update(catalog.slots)
+    return FlowCatalog(flows=flows,slots=slots)
 if __name__ == "__main__":
     loader = FlowLoader()
     path = Path(__file__).parents[2] / 'config' / 'test.yml'

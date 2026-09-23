@@ -2,6 +2,7 @@ from ws.domain.state import DialogueState, TaskInstance
 from ws.task.command.models import Command, StartFlowCommand, SetSlotsCommand, CancelTaskCommand, ResumeTaskCommand
 from ws.task.flow.models import FlowCatalog, Flow
 from ws.task.flow.steps import StartFlowStep
+from ws.task.lifecycle.models import TaskEvent
 
 class CommandProcessor:
     def run(
