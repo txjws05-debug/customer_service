@@ -1,3 +1,4 @@
+import time
 import uuid
 from dataclasses import dataclass,field
 
@@ -36,6 +37,19 @@ class SharedState:
 
     focuse_object: FocusedObject | None
     sessions: list[Session]= field(default_factory=list)
+
+    #创建新session
+    def create_session(self):
+        now=time.time()
+        session=Session(
+            session_id=str(uuid.uuid4()),
+            started_at=now,
+            last_activity_at=now,
+        )
+        #创建session对象放到state里面
+        self.sessions.append(session)
+    def close_current_session(self):
+        self.sessions[-1].closed_at=time.time()
 
 @dataclass
 class TaskInstance:
