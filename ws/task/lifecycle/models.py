@@ -22,7 +22,7 @@ class TaskResumed:
 class TaskCanceled:
     task: TaskRef
 
-TasksEvent: TypeAlias=(
+TaskEvent: TypeAlias=(
     TaskStarted
     | TaskSwiched
     | TaskResumed

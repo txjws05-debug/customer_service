@@ -5,7 +5,7 @@ from ws.task.flow.steps import StartFlowStep
 from ws.task.lifecycle.models import TaskEvent
 
 class CommandProcessor:
-    def run(
+    async def run(
             self,commands:list[Command],
             state:DialogueState,
             flows:FlowCatalog,
@@ -36,13 +36,15 @@ class CommandProcessor:
                 step_id=start_step.id
             )
 
-            if isinstance(command,SetSlotsCommand):
-                state.tasks.active.slots.update(command.slots)
-                return None
+        if isinstance(command,SetSlotsCommand):
+            state.tasks.active.slots.update(command.slots)
+            return None
 
-            if isinstance(command,CancelTaskCommand):
-                event: TaskEvent=state.tasks.cancel(command.task_id)
-                return event
-            if isinstance(command,ResumeTaskCommand):
-                event : TaskEvent=state.tasks.resusme(command.task_id)
-                return event
+        if isinstance(command,CancelTaskCommand):
+            event: TaskEvent=state.tasks.cancel(command.task_id)
+            return event
+        if isinstance(command,ResumeTaskCommand):
+            event : TaskEvent=state.tasks.resume(command.task_id)
+            return event
+        event=state.tasks.start(task)
+        return event

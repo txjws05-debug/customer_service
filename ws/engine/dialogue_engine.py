@@ -3,11 +3,11 @@ import uuid
 from dataclasses import asdict
 
 
-from domain.state import FocusedObject
-from plan.models import TurnPlanValidationResult
-from task.command.models import SetSlotsCommand
-from task.flow.models import Flow
-from task.flow.steps import FlowStep, CollectSlotStep
+from ws.domain.state import FocusedObject
+from ws.plan.models import TurnPlanValidationResult
+from ws.task.command.models import SetSlotsCommand
+from ws.task.flow.models import Flow
+from ws.task.flow.steps import FlowStep, CollectSlotStep
 from ws.domain.message import UserMessage, ProcessResult, MessageType, BotMessage
 from ws.domain.state import DialogueState, Turn
 from ws.plan import turn_plan
@@ -17,13 +17,13 @@ from ws.task.handler import TaskHandler
 
 class DialogueEngine:
     #处理消息
-    def __init__(self,trun_plan: TurnPlan,
+    def __init__(self,turn_plan: TurnPlan,
                  turn_plan_validation:TurnPlanValidation,
                  task_handler: TaskHandler
                  ):
-        self._turn_plan=trun_plan,
+        self._turn_plan=turn_plan
         self._turn_plan_validation=turn_plan_validation
-        self.task_handler=task_handler
+        self._task_handler=task_handler
 
     async def process_message(self,state:DialogueState,user_message:UserMessage)->ProcessResult:
         #准备当前会话
@@ -33,10 +33,10 @@ class DialogueEngine:
         #3判断消息类型
         #文本消息类型
         if user_message.type==MessageType.TEXT:
-            messages:list[BotMessage]=self._execute_text_message(user_message,state)
+            messages:list[BotMessage]= await self._execute_text_message(user_message,state)
             #对象消息类型
         else :
-            messages: list[BotMessage]=self._execute_object_message(user_message,state)
+            messages: list[BotMessage]=await self._execute_object_message(user_message,state)
 
         #提交本轮对话记录
         ##封装list[BotMessage]到turn对象
@@ -78,7 +78,7 @@ class DialogueEngine:
         #如果任务流程，识别流程id
         turnPlan:TurnPlan = await self._turn_plan.plan(user_message=user_message,
                                                        state=state,
-                                                       flow_catalog=self.task_handler._flow_catalog)
+                                                       flow_catalog=self._task_handler._flow_catalog)
         #2 对llm意图识别结果校验
         ##如有两个轨道，任务流程识别流程id不存在
         validation:TurnPlanValidationResult=self._turn_plan_validation.validate(turn_plan=turnPlan,
@@ -93,7 +93,7 @@ class DialogueEngine:
         #比如识别任务流程调用TaskHandelr方法执行
         if turnPlan.task:
             return  await self.task_handler.handle(
-                commands=turnPlan.task.command,
+                commands=turnPlan.task.commands,
                 state=state,
                 user_message=user_message
             )
@@ -101,7 +101,7 @@ class DialogueEngine:
             pass
         if  turnPlan.chitchat:
             pass
-
+        return []
 
      #处理对象类型消息
     async def _execute_object_message(self,user_message,state):

@@ -1,8 +1,4 @@
-from langchain_core.language_models.fake import FakeListLLMError
-from sqlalchemy.ext.asyncio import result
-
-from task import action
-from task.action.base import ActionResult
+from ws.task.action.base import ActionResult
 from ws.domain.message import UserMessage, BotMessage
 from ws.domain.state import DialogueState
 from ws.task.action.base import ActionCall
@@ -11,10 +7,10 @@ from ws.task.flow.links import FlowStepLink, ConditionalLink, FallbackLink
 from ws.task.flow.models import FlowCatalog, Flow
 from ws.task.flow.steps import FlowStep, StartFlowStep, ResponseFlowStep, CollectSlotStep, ActionFlowStep, \
     EndFlowStep
-from ws.task.response.renderer import ResponseRenderer
+from ws.task.response.render import ResponseRender
 
 class FlowExecutor:
-    def __init__(self,response_renderer:ResponseRenderer):
+    def __init__(self,response_renderer:ResponseRender,action_runner):
         self.response_renderer =response_renderer
         self._action_runner =action_runner
 
@@ -28,20 +24,20 @@ class FlowExecutor:
         for _ in range(100):
             #推进步骤实现
             flows:Flow = flows.get_flow_by_id(state.tasks.active.flow_id)
-            step:FlowStep =flows.get_start_by_id(state.tasks.active.step_id)
+            step:FlowStep =flows.get_step_by_id(state.tasks.active.step_id)
             #判断步骤类型
             if isinstance(step,StartFlowStep):
-                 self.run_step(step,state)
+                 self._run_step(step,state)
                  continue
             if  isinstance(step,ResponseFlowStep):
-                 bot_messages: BotMessage=self.response_renderer.render(step.template,state,user_message)
-                 bot_messages.append(bot_messages)
+                 bot_message: BotMessage=await self.response_renderer.render(step.template,state,user_message)
+                 bot_messages.append(bot_message)
                  self._run_step(step,state)
                  continue
 
             if isinstance(step,CollectSlotStep):
                 # need_input是bool  true:需要用户输入，没有槽位数据   false：有槽位数据
-                need_input=self._run_collect_step(step,state,user_message,bot_messages)
+                need_input=await self._run_collect_step(step,state,user_message,bot_messages)
                 if need_input:
                     return bot_messages
                 else :
@@ -56,7 +52,7 @@ class FlowExecutor:
                 #2根据action值找到对应attion业务对象
                 #4把action返回结果封装处理
                 #3调用action业务对象里面的方法调用中台接口
-                action_result:ActionResult=self._action_runner.run(
+                action_result:ActionResult=await self._action_runner.run(
                     action_call=action_call,
                     state=state
                 )
@@ -66,6 +62,7 @@ class FlowExecutor:
                 )
                 # 推进下一步
                 self._run_step(step,state)
+                continue
 
             if isinstance(step, EndFlowStep):
                 state.tasks.active = None
@@ -75,7 +72,7 @@ class FlowExecutor:
         #把当前步骤的next值设置当前ative里面步骤id
         #next_step_id=step.next
         #step.next有两种情况 字符串 列表 if then else
-        next_step_id=self._select_next_step(step.next.state)
+        next_step_id=self._select_next_step(step.next,state)
         state.tasks.active.step_id=next_step_id
     #如何跳转到下一步,找到下一步的步骤id的方法
     def _select_next_step(self,next:list[FlowStepLink],state:DialogueState)->str:
@@ -93,7 +90,7 @@ class FlowExecutor:
             if isinstance(link,FallbackLink):
                 return link.target
     #处理collect类型步骤
-    def _run_collect_step(self,step:CollectSlotStep,
+    async def _run_collect_step(self,step:CollectSlotStep,
                           state:DialogueState,
                           user_message:UserMessage,
                           bot_messages:list[BotMessage])->bool:
@@ -110,10 +107,10 @@ class FlowExecutor:
         #true需要用户输入
         slots_value=state.tasks.active.slots.get(step.solt_name)
         if not  slots_value:
-            bot_messages=self.response_renderer.render(
+            bot_message=await self.response_renderer.render(
                 step.template,state,user_message
             )
-            bot_messages.append(bot_messages)
+            bot_messages.append(bot_message)
             return True
         #4如果上面两步获取槽位数据
         else:
@@ -133,10 +130,10 @@ class FlowExecutor:
         else:
             #从槽删除数据
             state.tasks.active.slots.pop(step.solt_name)
-            bot_messages= self.response_renderer.render(
+            bot_message= await self.response_renderer.render(
                 step.validation.failure_template,state,user_message
             )
-            bot_messages.append(bot_messages)
+            bot_messages.append(bot_message)
             return True
     #从state聚焦对象获取槽位数据
     def get_slot_data_focused_object(self,step,state):

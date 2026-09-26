@@ -31,7 +31,7 @@ class FlowLoader:
         for flow_id ,flow_data in flows_data.items():
             flow_slots: list[FlowSlot]=[
                 slots[collect_step['slot_name']]
-                for collect_step in flows_data['steps']
+                for collect_step in flow_data['steps']
                 if collect_step['type']=='collect'
             ]
             # 步骤列表
