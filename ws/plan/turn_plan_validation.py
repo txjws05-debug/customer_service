@@ -44,6 +44,11 @@ class TurnPlanValidation:
                             state: DialogueState,
                             flow_catalog:FlowCatalog
                                 ):
+        if not task.commands:
+            return TurnPlanValidationResult(
+                valid=False,
+                reason=ClarifyReason.MISSING_TASK_COMMANDS
+            )
         #根据不同类型的command做不同检验
         for command in task.commands:
             #1 start_flow 校验flow_id是否存在于当前流程里面yaml里面
@@ -87,4 +92,4 @@ class TurnPlanValidation:
         return TurnPlanValidationResult(valid=True)
 
     def _validate_knowledge_plan(self):
-        pass
+        return TurnPlanValidationResult(valid=True)

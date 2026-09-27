@@ -1,5 +1,15 @@
 from pathlib import Path
 
+import chitchat
+import clarify
+import knowledge
+from chitchat.handler import ChitchatHandler
+from clarify.handler import ClarifyResponder
+from knowledge.handle import KnowledgeHandler
+from knowledge.intents import KNOWLEDGE_INTENTS
+from knowledge.provider import ApiProductProvider, ApiOrderProvider, FAQProvider, RAGProvider
+from knowledge.registry import KnowledgeProviderRegistry
+from knowledge.responder import KnowledgeResponder
 from ws.engine.dialogue_engine import DialogueEngine
 from ws.plan import turn_plan_validation
 from ws.plan.turn_plan import TurnPlanner
@@ -41,8 +51,28 @@ def build_dailogue_engine()->DialogueEngine:
         task_lifecycle=task_lifecycle,
         flow_executor=flow_executor,
         flow_catalog=flow_catalog)
+    provider_registry=KnowledgeProviderRegistry([
+        ApiProductProvider(),
+        ApiOrderProvider(),
+        FAQProvider(),
+        RAGProvider()
+    ])
+    knowledge_responder = KnowledgeResponder
+    knowledge_handler =KnowledgeHandler(
+        knowledge_intents=KNOWLEDGE_INTENTS,
+        provider_registry=provider_registry,
+        knowledge_responder=knowledge_responder
+    )
+
+    clarify_responder=ClarifyResponder()
+    chitchat_handler=ChitchatHandler()
     return DialogueEngine(
         turn_plan=turn_planner,
         turn_plan_validation=turn_plan_validation,
-        task_handler=task_handler
+        task_handler=task_handler,
+
+        #新增三个对象
+        knowledge_handler = knowledge_handler,
+        chitchat_handler= chitchat_handler,
+        clarify_responder = clarify_responder
     )

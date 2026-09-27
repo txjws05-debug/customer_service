@@ -2,7 +2,11 @@ import time
 import uuid
 from dataclasses import asdict
 
-
+import knowledge
+from chitchat.handler import ChitchatHandler
+from clarify.handler import ClarifyResponder
+from knowledge.handle import KnowledgeHandler
+from plan.models import ClarifyReason
 from ws.domain.state import FocusedObject
 from ws.plan.models import TurnPlanValidationResult
 from ws.task.command.models import SetSlotsCommand
@@ -19,11 +23,17 @@ class DialogueEngine:
     #处理消息
     def __init__(self,turn_plan: TurnPlan,
                  turn_plan_validation:TurnPlanValidation,
-                 task_handler: TaskHandler
+                 task_handler: TaskHandler,
+                 knowledge_handler:KnowledgeHandler,
+                 chitchat_handler:ChitchatHandler,
+                 clarify_responder: ClarifyResponder
                  ):
         self._turn_plan=turn_plan
         self._turn_plan_validation=turn_plan_validation
         self._task_handler=task_handler
+        self._knowledge_handler = knowledge_handler
+        self._chitchat_handler = chitchat_handler
+        self._clarify_responder = clarify_responder
 
     async def process_message(self,state:DialogueState,user_message:UserMessage)->ProcessResult:
         #准备当前会话
@@ -87,8 +97,11 @@ class DialogueEngine:
 
         #校验失败，调用反问澄清组件
         if not validation.valid:
-            #todo 反问澄清插件
-            pass
+            return  await self._clarify_responder.respond(
+                reason=validation.reason,
+                state=state,
+                user_message=user_message,
+            )
         #校验成功，根据识别不同轨道，调用不同handler处理
         #比如识别任务流程调用TaskHandelr方法执行
         if turnPlan.task:
@@ -97,12 +110,20 @@ class DialogueEngine:
                 state=state,
                 user_message=user_message
             )
+        #知识检索
         if turnPlan.knowledge:
-            pass
-        if  turnPlan.chitchat:
-            pass
-        return []
+            return await self._knowledge_handler.handle(
+                knowledge_intents=turnPlan.knowledge.intents,
+                user_message=user_message,
+                state= state,
+            )
+        #闲聊
 
+        if  turnPlan.chitchat:
+            return await self._chitchat_handler.handle(
+            user_message=user_message,
+            state=state
+        )
      #处理对象类型消息
     async def _execute_object_message(self,user_message,state):
         #1把对象消息放到state里面focused_object
@@ -131,7 +152,11 @@ class DialogueEngine:
         )
         else:
             # 反问澄清
-            pass
+            return await self._clarify_responder.respond(
+                reason=ClarifyReason.OBJECT_REQUIRES_INTENT,
+                user_message=user_message,
+                state=state,
+            )
     def _can_fill_slots(self,state:DialogueState) -> bool:
         #1判断当前是否有活跃任务
         active_task=state.tasks.active

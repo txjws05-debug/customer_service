@@ -5,6 +5,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 from openai.types.conversations import conversation
 
+from knowledge.intents import KnowledgeIntent
 from ws.domain.message import UserMessage
 from ws.domain.state import DialogueState
 from ws.plan.models import TurnPlan
@@ -17,7 +18,8 @@ from ws.utils.llm_client import llm
 class TurnPlan:
     async def plan(self,user_message: UserMessage,
                    state:DialogueState,
-                   flow_catalog:FlowCatalog)->TurnPlan:
+                   flow_catalog:FlowCatalog,
+                   knowledge_intents:dict[str,KnowledgeIntent])->TurnPlan:
         #加载提示词模板
         prompt_text = load_prompt('turn_plan')
         prompt= PromptTemplate.from_template(
