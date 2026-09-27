@@ -75,7 +75,10 @@ class ResponseFlowStep(FlowStep):
 
     @classmethod
     def from_dict(cls,flow_step_data : dict[str,Any]) -> "ResponseFlowStep":
-        pass
+        return cls(
+            **FlowStep.base_fields(flow_step_data),
+            template=ResponseTemplate.from_dict(flow_step_data['template'])
+        )
 
 
 @dataclass
@@ -85,7 +88,19 @@ class CollectSlotStep(FlowStep):
     validation:SlotValidation | None = None
     @classmethod
     def from_dict(cls,flow_step_data : dict[str,Any]) -> "CollectSlotStep":
-        pass
+        validation=None
+        if 'validation' in flow_step_data:
+            validation=SlotValidation(
+                condition=flow_step_data['validation']['condition'],
+                failure_template=ResponseTemplate.form_dict(
+                    flow_step_data=['validation']['failure_template'])
+            )
+        return cls(
+            **FlowStep.base_fields(flow_step_data),
+            slot_name=flow_step_data['slot_name'],
+            template=ResponseTemplate.from_dict(flow_step_data['template']),
+            validation=validation
+        )
 
 @dataclass
 class EndFlowStep(FlowStep):

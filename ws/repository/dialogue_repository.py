@@ -18,13 +18,13 @@ from ws.utils.database import close_engine, init_db_engine
 DIALOGUE_STATE_ADAPTER=TypeAdapter(DialogueState)
 # 操作数据库
 class DialogueRepository:
-    def __int__(self,session: AsyncSession):
+    def __init__(self,session: AsyncSession):
         self.session = session
         #根据sender_id 查询历史会话信息状态数据
         #因为只存储上一次会话状态记录数据，查询结果为空/有一条记录
     async def load(self,sender_id:str) -> DialogueState:
         sql=select(DialogueStateRecord).where(
-            DialogueStateRecord.sender_di==
+            DialogueStateRecord.sender_id==
             sender_id
         )
 

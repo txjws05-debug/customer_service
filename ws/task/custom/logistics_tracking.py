@@ -3,7 +3,7 @@ from typing import Any
 from ws.config.config import settings
 from ws.domain.state import DialogueState
 from ws.task.action.base import Action, ActionResult
-from ws.utils import http_client
+from ws.utils.http import http_client
 
 
 #查询物流

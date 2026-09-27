@@ -49,26 +49,17 @@ class FlowLoader:
             )
             flows[flow_id] = flow
         return flows
-def loader (self,paths: list[Path])-> FlowLoader:
-    flows:dict[str,Flow]={}
-    slots: dict[str,FlowSlot]={}
 
-    for path in paths:
-        catalog= self.load(path)
-        flows.update(catalog.flows)
-        slots.update(catalog.slots)
-    return FlowCatalog(flows=flows,slots=slots)
+    def loader_many(self,paths:list[Path])-> FlowCatalog:
+        flows:dict[str,Flow]={}
+        slots:dict[str,FlowSlot]={}
 
-def loader_many(self,paths:list[Path])-> FlowCatalog:
-    flows:dict[str,Flow]={}
-    slots:dict[str,FlowSlot]={}
-
-    for path in paths:
-        catalog=self.load(path)
-        #dict用update合并（list 合并用extend，注意区别）
-        flows.update(catalog.flows)
-        slots.update(catalog.slots)
-    return FlowCatalog(flows=flows,slots=slots)
+        for path in paths:
+            catalog=self.load(path)
+            #dict用update合并（list 合并用extend，注意区别）
+            flows.update(catalog.flows)
+            slots.update(catalog.slots)
+        return FlowCatalog(flows=flows,slots=slots)
 if __name__ == "__main__":
     loader = FlowLoader()
     path = Path(__file__).parents[2] / 'config' / 'test.yml'
