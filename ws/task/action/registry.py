@@ -1,6 +1,6 @@
 from ws.task.action.base import Action
 
-class ActionRegistory:
+class ActionRegistry:
     def __init__(self):
         self._action:dict[str,Action]={}
 

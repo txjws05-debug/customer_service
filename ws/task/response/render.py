@@ -1,5 +1,3 @@
-from itertools import chain
-
 from jinja2 import Template
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
@@ -24,7 +22,7 @@ class ResponseRender:
             #jinja2 渲染
             template=Template(template.text)
             render_text=template.render(slots=state.tasks.active.slots)
-            return BotMessage
+            return BotMessage(text=render_text)
         #reohrase:有text文本，调用llm，根据提示词和text文本，llm修改内容返回
         if template.mode==ResponseMode.REPHRASE:
             #text内容渲染

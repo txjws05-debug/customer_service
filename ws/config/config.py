@@ -11,17 +11,12 @@ class Settings(BaseSettings):
     #数据库
     database_url:str
 
-
-    #商城API
-    commerce_api_key:str
-
     #商城 API
-    commerce_api_key_base_url:str
     commerce_api_base_url: str
 
     #服务器
     app_host:str
     app_port:int
 
-    model_config = SettingsConfigDict(env_file=ENV_FILE)
+    model_config = SettingsConfigDict(env_file=ENV_FILE, extra='ignore')
 settings=Settings()

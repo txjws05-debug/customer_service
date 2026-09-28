@@ -2,8 +2,6 @@ import time
 import uuid
 from dataclasses import dataclass,field
 
-from langchain_protocol import TasksEvent
-from typing_inspection.typing_objects import target
 
 from ws.domain.message import UserMessage,BotMessage
 from ws.task.lifecycle.models import TaskEvent, TaskSwitched, TaskStarted, TaskRef, TaskCanceled, TaskResumed
@@ -22,7 +20,7 @@ class Session:
     session_id: str
     started_at: float
     last_activity_at: float
-    closed_at: float
+    closed_at: float | None = None
     turns: list[Turn]=field(default_factory=list)
 #对象类型消息
 @dataclass
@@ -35,7 +33,7 @@ class FocusedObject:
 @dataclass
 class SharedState:
 
-    focuse_object: FocusedObject | None
+    focuse_object: FocusedObject | None = None
     sessions: list[Session]= field(default_factory=list)
 
     #创建新session
@@ -68,7 +66,7 @@ class TaskState:
     active:TaskInstance | None = None
     paused:list[TaskInstance] = field(default_factory=list)
     #开始流程
-    def start (self,task:TaskInstance)->TasksEvent:
+    def start (self,task:TaskInstance)->TaskEvent:
         if self.active:
             previous= self.active.to_ref()
             self.paused.append(self.active)
@@ -80,7 +78,7 @@ class TaskState:
             self.active=task
             return TaskStarted(task=self.active.to_ref())
     #取消流程
-    def cancle(self,task_id:str) -> TaskEvent:
+    def cancel(self,task_id:str) -> TaskEvent:
         if self.active.task_id ==task_id:
             target_task = self.active.to_ref()
             self.active=None
@@ -105,7 +103,7 @@ class TaskState:
             raise ValueError("恢复任务不存在")
         if self.active:
             previous_task_ref = self.active.to_ref()
-
+            self.paused.append(self.active)
             self.active=target_task
             return TaskSwitched(previous=previous_task_ref,
                                 current=target_task_ref)

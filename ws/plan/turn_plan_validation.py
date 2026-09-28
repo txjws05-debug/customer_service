@@ -1,7 +1,7 @@
-from plan.models import TaskTurnPlan
-from task.command.models import StartFlowCommand, ResumeTaskCommand, CancelTaskCommand
+
+from ws.task.command.models import StartFlowCommand, ResumeTaskCommand, CancelTaskCommand
 from ws.domain.state import DialogueState
-from ws.plan.models import TurnPlan, TurnPlanValidationResult, ClarifyReason
+from ws.plan.models import TurnPlan, TurnPlanValidationResult, ClarifyReason,TaskTurnPlan
 from ws.task.flow.models import FlowCatalog
 
 
@@ -34,9 +34,11 @@ class TurnPlanValidation:
         #只有一个轨道
         active_tracks=active_tracks[0]
         if active_tracks=="task":
-            self._validate_task_plan()
+           return self._validate_task_plan(
+               task= turn_plan.task,state=state,flow_catalog=flow_catalog
+           )
         if active_tracks=="knowledge":
-            self._validate_knowledge_plan()
+            return self._validate_knowledge_plan()
         return TurnPlanValidationResult(valid=True)
     #对task意图识别
     def _validate_task_plan(self,

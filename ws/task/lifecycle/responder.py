@@ -1,5 +1,3 @@
-from asyncio import current_task
-
 from ws.domain.message import BotMessage
 from ws.task.flow.models import FlowCatalog, Flow
 from ws.task.lifecycle.models import TaskEvent, TaskStarted, TaskSwitched, TaskResumed, TaskCanceled
@@ -7,7 +5,7 @@ class TaskLifecycleResponder:
     def __init__(self,flows:FlowCatalog)->None:
         self.flows= flows
 
-    def respond(self,evnets:list[TaskEvent])->list[BotMessage]:
+    async def  respond(self,evnets:list[TaskEvent])->list[BotMessage]:
         messages: list[BotMessage]=[]
         for event in evnets:
             messages.append(self._execute_event_data(event))
@@ -31,4 +29,4 @@ class TaskLifecycleResponder:
         if isinstance(event,TaskCanceled):
             canceled_flow_name=self._get_flow_name(event.task.flow_id)
             return BotMessage(text=f"好的，{canceled_flow_name}取消操作")
-        return ValueError("Unknown event")
+        raise ValueError("Unknown event")

@@ -13,5 +13,3 @@ async def close_db_engine():
         await engine.dispose()
     engine=None
     session_factory=None
-async def close_engine():
-    await engine.dispose()

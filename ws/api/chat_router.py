@@ -4,9 +4,8 @@ from dataclasses import asdict
 from fastapi import APIRouter
 from  fastapi.params import Depends
 
-from api.schemas import HistoryMessage
 from ws.api.schemas import HistoryResponse
-from ws.api.schemas import ChatRequest, ChatResponse, ChatMessage, ChatObject
+from ws.api.schemas import ChatRequest, ChatResponse, ChatMessage, ChatObject, HistoryMessage
 from ws.api.depends import get_dialogue_service
 from ws.domain.message import UserMessage,ProcessResult,MessageType,MessageObject
 from ws.domain.state import DialogueState, Session, Turn
@@ -27,9 +26,11 @@ async def chat(chat_request:ChatRequest ,
 #ChatRequest转换 UserMessage
 def _build_user_message(chat_request:ChatRequest)->UserMessage:
     return UserMessage(
-         sender_id=chat.sender_id,
+         sender_id=chat_request.sender_id,
          message_id=chat_request.message_id
-         if chat_request.message_id else str (uuid.uuid4()),text=chat_request.text,
+         if chat_request.message_id else str (uuid.uuid4()),
+         type=MessageType.TEXT if chat_request.text else MessageType.OBJECT,
+         text=chat_request.text,
          object=MessageObject(
              type=chat_request.object.type,
              id=chat_request.object.id,
@@ -54,16 +55,16 @@ def _build_chat_response(process_result:ProcessResult)->ChatResponse:
         ]
     )
 # 返回当前用户历史记录
-@chat_router.post("api/chat/history")
+@chat_router.post("/api/chat/history")
 async def chat_history(sender_id:str,
                        dialogue_service:DialogueService=Depends(get_dialogue_service)
                        )->HistoryResponse:
     #调用service方法，返回 查询出来的DialogueState对象
-    history_seesion:DialogueService=(
+    history_session:DialogueState=(
         await dialogue_service.get_history_session_send_id(sender_id)
     )
     #history_session:DialogueState取出来，封装到iHistoryResponse
-    sessions:list[Session] = history_seesion.share.sessions
+    sessions:list[Session] = history_session.share.sessions
 
     #类型HistoryMessage变量，封装多个HistoryMessage数据
     messages:list[HistoryMessage] =[]

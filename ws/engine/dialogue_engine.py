@@ -2,26 +2,22 @@ import time
 import uuid
 from dataclasses import asdict
 
-import knowledge
-from chitchat.handler import ChitchatHandler
-from clarify.handler import ClarifyResponder
-from knowledge.handle import KnowledgeHandler
-from plan.models import ClarifyReason
-from ws.domain.state import FocusedObject
-from ws.plan.models import TurnPlanValidationResult
+from ws.chitchat.handler import ChitchatHandler
+from ws.clarify.handler import ClarifyResponder
+from ws.domain.message import UserMessage, ProcessResult, MessageType, BotMessage
+from ws.domain.state import DialogueState, Turn, FocusedObject
+from ws.knowledge.handle import KnowledgeHandler
+from ws.plan.models import TurnPlan, TurnPlanValidationResult, ClarifyReason
+from ws.plan.turn_plan import TurnPlanner
+from ws.plan.turn_plan_validation import TurnPlanValidation
 from ws.task.command.models import SetSlotsCommand
 from ws.task.flow.models import Flow
 from ws.task.flow.steps import FlowStep, CollectSlotStep
-from ws.domain.message import UserMessage, ProcessResult, MessageType, BotMessage
-from ws.domain.state import DialogueState, Turn
-from ws.plan import turn_plan
-from ws.plan.turn_plan import TurnPlan
-from ws.plan.turn_plan_validation import TurnPlanValidation
 from ws.task.handler import TaskHandler
 
 class DialogueEngine:
     #处理消息
-    def __init__(self,turn_plan: TurnPlan,
+    def __init__(self,turn_plan: TurnPlanner,
                  turn_plan_validation:TurnPlanValidation,
                  task_handler: TaskHandler,
                  knowledge_handler:KnowledgeHandler,
@@ -88,6 +84,7 @@ class DialogueEngine:
         #如果任务流程，识别流程id
         turnPlan:TurnPlan = await self._turn_plan.plan(user_message=user_message,
                                                        state=state,
+                                                       knowledge_intents=self._knowledge_handler.knowledge_intents,
                                                        flow_catalog=self._task_handler._flow_catalog)
         #2 对llm意图识别结果校验
         ##如有两个轨道，任务流程识别流程id不存在
@@ -105,7 +102,7 @@ class DialogueEngine:
         #校验成功，根据识别不同轨道，调用不同handler处理
         #比如识别任务流程调用TaskHandelr方法执行
         if turnPlan.task:
-            return  await self.task_handler.handle(
+            return  await self._task_handler.handle(
                 commands=turnPlan.task.commands,
                 state=state,
                 user_message=user_message
@@ -145,8 +142,8 @@ class DialogueEngine:
             slots=slots
         )
             #调用TaskHandler方法执行
-            return await self.task_handler.handle(
-            command=[command],
+            return await self._task_handler.handle(
+            commands=[command],
             state=state,
             user_message=user_message,
         )
@@ -165,7 +162,7 @@ class DialogueEngine:
         #有活跃任务
         #根据当前任务流程id，获取流程对象
         flow_id= active_task.flow_id
-        flow:Flow =self.task_handler._flow_catalog.get_flow_by_id(flow_id)
+        flow:Flow =self._task_handler._flow_catalog.get_flow_by_id(flow_id)
 
         #从流程对象获取所有步骤列表，当前任务步骤id到列表找到步骤对应数据
         step:FlowStep=flow.get_step_by_id(active_task.step_id)

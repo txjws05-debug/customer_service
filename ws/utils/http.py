@@ -1,6 +1,5 @@
 import asyncio
 from httpx import  AsyncClient
-from openai import http_client
 
 http_client:AsyncClient|None=None
 
@@ -16,7 +15,7 @@ async def close_http_client():
 async def test():
     init_http_client()
     response=await http_client.get(
-        url="http:1127.0.0.1:18081/users/u1001/orders")
+        url="http://127.0.0.1:18081/users/u1001/orders")
     print(response.json())
 
 if __name__=="__main__":

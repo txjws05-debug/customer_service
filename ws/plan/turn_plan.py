@@ -3,9 +3,7 @@ from dataclasses import asdict
 
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
-from openai.types.conversations import conversation
-
-from knowledge.intents import KnowledgeIntent
+from ws.knowledge.intents import KnowledgeIntent
 from ws.domain.message import UserMessage
 from ws.domain.state import DialogueState
 from ws.plan.models import TurnPlan
@@ -15,7 +13,7 @@ from ws.task.flow.models import FlowCatalog, Flow
 from ws.utils.llm_client import llm
 
 
-class TurnPlan:
+class TurnPlanner:
     async def plan(self,user_message: UserMessage,
                    state:DialogueState,
                    flow_catalog:FlowCatalog,
@@ -26,7 +24,7 @@ class TurnPlan:
             prompt_text,template_format="jinja2",
         )
         #创建调用链
-        chian = prompt| llm| JsonOutputParser()
+        chain = prompt| llm| JsonOutputParser()
         #获取提示词模板，调用ainvoke并传递到方法里面
         #用户信息
         user_message= HistoryBuilder.render_user_message(user_message)
@@ -35,7 +33,7 @@ class TurnPlan:
         #聚焦对象数据
         focused_object_json = json.dumps(
             asdict(state.share.focuse_object)
-            if state.shared.focused_object else None,ensure_ascii=False
+            if state.share.focuse_object else None,ensure_ascii=False
         )
         #task_state_json
         task_state_json= json.dumps(asdict(state.tasks)
@@ -51,13 +49,20 @@ class TurnPlan:
                     for flow in flows.values()
                     ]
         #调用方得到结果
-        res=await chian.ainvoke({
+        res=await chain.ainvoke({
             "flows_json": flows_json,
             "task_state_json": task_state_json,
             "focused_object_json": focused_object_json,
             "conversation_history":conversation_history,
             "user_message": user_message,
-            "knowledge_intents_json" : {},
+            "knowledge_intents_json" : json.dumps(
+                [{
+                    "id": intent.id,"description": intent.description
+                }
+                    for intent in knowledge_intents.values()
+                ],
+                ensure_ascii=False
+            ),
         })
         #把llm返回结果封装TrunPlan
         return  TurnPlan.from_dict(res)

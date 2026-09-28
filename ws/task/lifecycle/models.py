@@ -1,16 +1,18 @@
 from dataclasses import dataclass
 from typing import TypeAlias
 
-from langchain_protocol import TasksEvent
+
 
 
 @dataclass
 class TaskRef:
     task_id :str
     flow_id :str
-
 @dataclass
-class TaskSwiched:
+class TaskStarted:
+    task :TaskRef
+@dataclass
+class TaskSwitched:
     previous:TaskRef
     current:TaskRef
 
@@ -24,7 +26,7 @@ class TaskCanceled:
 
 TaskEvent: TypeAlias=(
     TaskStarted
-    | TaskSwiched
+    | TaskSwitched
     | TaskResumed
     | TaskCanceled
 )

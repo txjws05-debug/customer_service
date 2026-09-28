@@ -1,10 +1,10 @@
 from ws.domain.state import DialogueState
 from ws.task.action.base import ActionCall, ActionResult, Action
-from ws.task.action.registry import  ActionRegistory
+from ws.task.action.registry import  ActionRegistry
 
 
 class ActionRunner:
-    def __init__(self,registry:ActionRegistory):
+    def __init__(self,registry:ActionRegistry):
         self._registry=registry
 
     async  def run(self,action_call:ActionCall,

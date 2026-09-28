@@ -92,12 +92,12 @@ class CollectSlotStep(FlowStep):
         if 'validation' in flow_step_data:
             validation=SlotValidation(
                 condition=flow_step_data['validation']['condition'],
-                failure_template=ResponseTemplate.form_dict(
-                    flow_step_data=['validation']['failure_template'])
+                failure_template=ResponseTemplate.from_dict(
+                    flow_step_data['validation']['failure_template'])
             )
         return cls(
             **FlowStep.base_fields(flow_step_data),
-            slot_name=flow_step_data['slot_name'],
+            solt_name=flow_step_data['slot_name'],
             template=ResponseTemplate.from_dict(flow_step_data['template']),
             validation=validation
         )

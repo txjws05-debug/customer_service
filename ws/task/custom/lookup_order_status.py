@@ -17,7 +17,7 @@ class LookupOrderStatus(Action):
         order_number=state.tasks.active.slots.get("order_number")
         #2 httpx调用中台接口，路径+参数+提交方式
         url=f"{settings.commerce_api_base_url}/orders/{order_number}/status"
-        response = await http_client.http_client.get(url)
+        response = await http_client.get(url)
         data = response.json()["data"]
 
         #封装到ActionResult

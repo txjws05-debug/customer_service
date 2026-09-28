@@ -3,12 +3,12 @@ import asyncio
 from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.dialects.mysql import insert
-from sqlalchemy.ext.asyncio import AsyncSession, result
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ws.domain.state import DialogueState
 from ws.repository.orm.dialogue_state import DialogueStateRecord
 from ws.utils import database
-from ws.utils.database import close_engine, init_db_engine
+from ws.utils.database import close_db_engine, init_db_engine
 
 
 # TypeAdapter类型适配器
@@ -56,10 +56,10 @@ class DialogueRepository:
 if __name__=='__main__':
     init_db_engine()
     async def test():
-        async with database.async_session()as session:
+        async with database.session_factory()as session:
             dialogueRepository=DialogueRepository(session)
             #
             state=await dialogueRepository.load(sender_id='1')
             print(state)
-        await close_engine()
+        await close_db_engine()
     asyncio.run(test())

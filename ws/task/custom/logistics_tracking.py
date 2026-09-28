@@ -17,7 +17,7 @@ class LookupTracking(Action):
 
         order_number = state.tasks.active.slots.get("order_number")
         url = f"{settings.commerce_api_base_url}/orders/{order_number}/logistics"
-        response = await http_client.http_client.get(url)
+        response = await http_client.get(url)
         data =response.json()["data"]
         return ActionResult(
             slot_updates={

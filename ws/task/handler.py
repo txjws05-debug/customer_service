@@ -1,4 +1,4 @@
-from sqlalchemy.ext.asyncio import result
+
 
 from ws.domain.message import UserMessage, BotMessage
 from ws.domain.state import DialogueState
@@ -28,7 +28,7 @@ class TaskHandler:
         messages:list[BotMessage] =await self._task_lifecycle.respond(task_events)
         result:list[BotMessage]= await self._flow_executor.run_task(
             state=state,
-            user_message==user_message,
+            user_message=user_message,
             flows=self._flow_catalog
         )
         messages.extend(result)
