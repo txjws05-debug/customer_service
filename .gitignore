@@ -41,4 +41,5 @@ Thumbs.db
 # 部署密钥（无点前缀，需单独排除）
 deploy/.env
 deploy/backend.env
+deploy/ecommerce.env
 ecommerce-service-backend/.env

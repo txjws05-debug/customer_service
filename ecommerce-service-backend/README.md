@@ -23,18 +23,31 @@
 
 ## 启动方式
 
-推荐直接使用 Docker Compose：
+本项目已并入仓库根目录的 `docker-compose.yml`，与客服 Agent 共用同一个
+PostgreSQL 实例（pgvector 镜像），只是使用不同的库：
 
-```powershell
-cd atguigu_ecommerce_service
-docker compose up --build
+| 库名 | 使用者 |
+| --- | --- |
+| `customer_service` | 客服 Agent（对话状态、用户） |
+| `commerce` | 本服务（用户、商品、订单、物流） |
+
+在仓库根目录统一启动：
+
+```bash
+cd /opt/customer_service
+cp deploy/.env.example deploy/.env
+cp deploy/backend.env.example deploy/backend.env
+cp deploy/ecommerce.env.example deploy/ecommerce.env
+docker compose --env-file deploy/.env up -d --build
 ```
 
-如果你之前已经启动过 MySQL 容器，并且数据库里已经写入了乱码数据，需要先清掉旧卷再重新初始化：
+首次启动时本服务会自动建表并写入课程演示数据（可用 `SEED_ON_STARTUP=false` 关闭）。
 
-```powershell
-docker compose down -v
-docker compose up --build
+如果修改过表结构、需要重建数据，清掉数据卷再启动即可：
+
+```bash
+docker compose --env-file deploy/.env down -v
+docker compose --env-file deploy/.env up -d --build
 ```
 
 启动后默认地址：
@@ -56,12 +69,12 @@ docker compose up --build
 
 ## 本地开发
 
-如果你本地装了 Python 和 MySQL，也可以自己跑：
+如果你本地装了 Python 和 PostgreSQL，也可以直接运行（需先创建 `commerce` 库）：
 
-```powershell
-cd atguigu_ecommerce_service
+```bash
 uv sync
-uv run uvicorn app.main:app --reload --port 18081
+DATABASE_URL=postgresql+psycopg2://cs:密码@127.0.0.1:5432/commerce \
+  uv run python main.py
 ```
 
 环境变量见 `.env.example`。

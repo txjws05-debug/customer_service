@@ -13,9 +13,10 @@ def _env_bool(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
+    # 全栈统一使用 PostgreSQL（与客服 Agent 同实例、不同库名 commerce）
     database_url: str = os.getenv(
         "DATABASE_URL",
-        "mysql+pymysql://root:123456@127.0.0.1:3306/commerce?charset=utf8mb4",
+        "postgresql+psycopg2://cs:cs_pass_change_me@127.0.0.1:5432/commerce",
     )
     app_host: str = os.getenv("APP_HOST", "0.0.0.0")
     app_port: int = int(os.getenv("APP_PORT", "18081"))
