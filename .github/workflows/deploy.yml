@@ -35,7 +35,49 @@ jobs:
       - name: 运行单元测试
         run: uv run --frozen pytest -q
 
-  # ---------- 2. 前端：类型检查 + 生产构建 ----------
+  # ---------- 2. 部署脚本预检：在云端验证 bootstrap/deploy 的密码同步逻辑 ----------
+  deploy-scripts-verify:
+    name: verify deploy scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验 compose 文件语法
+        run: |
+          mkdir -p deploy
+          cp deploy/ecommerce.env.example deploy/ecommerce.env
+          cp deploy/backend.env.example  deploy/backend.env
+          cp deploy/.env.example         deploy/.env
+          docker compose --env-file deploy/.env config >/dev/null
+          echo "compose 配置语法 OK"
+
+      - name: 冒烟测试 bootstrap.sh（密码同步 + 幂等性）
+        run: |
+          set -e
+          bash deploy/bootstrap.sh
+          PW=$(sed -n 's/^POSTGRES_PASSWORD=//p' deploy/.env | head -1)
+          test -n "$PW" || { echo "未生成 POSTGRES_PASSWORD"; exit 1; }
+          grep -q "postgresql+asyncpg://cs:${PW}@postgres:5432/customer_service" deploy/backend.env \
+            || { echo "backend.env DATABASE_URL 同步失败"; exit 1; }
+          grep -q "postgresql+psycopg2://cs:${PW}@postgres:5432/commerce" deploy/ecommerce.env \
+            || { echo "ecommerce.env DATABASE_URL 同步失败"; exit 1; }
+          # 幂等性：再跑一次不应更换密码
+          bash deploy/bootstrap.sh >/dev/null
+          test "$PW" = "$(sed -n 's/^POSTGRES_PASSWORD=//p' deploy/.env | head -1)" \
+            || { echo "bootstrap 非幂等：密码被重新生成"; exit 1; }
+          echo "bootstrap 密码同步与幂等性 OK"
+
+      - name: 校验 shell 脚本行尾（必须 LF，否则容器内执行失败）
+        run: |
+          set -e
+          fail=0
+          for f in $(git ls-files '*.sh'); do
+            if grep -q $'\r' "$f"; then echo "::error file=$f::含 CRLF 行尾"; fail=1; fi
+          done
+          [ "$fail" -eq 0 ] || exit 1
+          echo "所有 shell 脚本均为 LF"
+
+  # ---------- 3. 前端：类型检查 + 生产构建 ----------
   frontend-verify:
     name: verify frontend
     runs-on: ubuntu-latest
@@ -56,11 +98,11 @@ jobs:
         env:
           NEXT_PUBLIC_API_BASE: ""
 
-  # ---------- 3. 构建并推送三个镜像 ----------
+  # ---------- 4. 构建并推送三个镜像 ----------
   build-and-push:
     name: build ${{ matrix.name }}
     runs-on: ubuntu-latest
-    needs: [backend-verify, frontend-verify]
+    needs: [backend-verify, deploy-scripts-verify, frontend-verify]
     strategy:
       fail-fast: false
       matrix:
@@ -104,14 +146,14 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
-  # ---------- 4. 部署到服务器 ----------
+  # ---------- 5. 部署到服务器 ----------
   deploy:
     name: deploy to server
     runs-on: ubuntu-latest
     needs: build-and-push
     environment: production
     steps:
-      - name: SSH 拉取镜像并重启
+      - name: SSH 同步代码、拉取镜像并重启
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -123,6 +165,11 @@ jobs:
           script: |
             set -e
             cd "$APP_DIR"
+
+            # 必须先同步代码，否则用的是服务器上的旧 deploy.sh / compose 文件
+            git fetch --prune origin
+            git reset --hard "origin/main" || git reset --hard "$IMAGE_TAG"
+
             IMAGE_TAG="$IMAGE_TAG" bash deploy/deploy.sh
         env:
           IMAGE_TAG: ${{ github.sha }}
