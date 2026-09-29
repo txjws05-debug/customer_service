@@ -1,9 +1,17 @@
+# ============================================================
+# 生产编排：只使用 GHCR 上 CI 构建好的镜像，不在服务器上构建。
+#
+# 与 docker-compose.yml 的分工：
+#   docker-compose.yml              -> 本地开发（含 build:，可在本机构建）
+#   docker-compose.prod.yml         -> 服务器生产（只有 image:，纯拉取）
+#
+# 服务器 1.75G 内存，本地构建 Next.js 极易 OOM，因此生产一律走镜像拉取。
+#
+# 用法：
+#   docker compose -f docker-compose.prod.yml --env-file deploy/.env up -d
+# ============================================================
+
 services:
-  # ==================== 基础设施 ====================
-  # 单一数据库：PostgreSQL + pgvector
-  #   - customer_service 库：客服 Agent（对话状态、用户）
-  #   - commerce 库：电商中台（用户、商品、订单、物流）
-  # 两个库同实例不同库名，既省内存又便于分别备份。
   postgres:
     image: pgvector/pgvector:pg16
     container_name: cs-postgres
@@ -15,7 +23,6 @@ services:
       TZ: Asia/Shanghai
     command:
       - postgres
-      # 2C2G 机器必须压小内存占用；可用连接数也相应收紧
       - -c
       - shared_buffers=128MB
       - -c
@@ -26,7 +33,6 @@ services:
       - maintenance_work_mem=32MB
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # 首次初始化时：启用 pgvector 扩展 + 创建 commerce 库
       - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cs} -d ${POSTGRES_DB:-customer_service}"]
@@ -36,13 +42,9 @@ services:
       start_period: 20s
     networks: [backend]
 
-  # ==================== 应用服务 ====================
   ecommerce:
-    # 电商中台：为客服 Agent 提供订单 / 物流 / 商品数据
     image: ${REGISTRY:-ghcr.io}/txjws05-debug/customer-service-ecommerce:${IMAGE_TAG:-latest}
-    build:
-      context: ./ecommerce-service-backend
-      dockerfile: Dockerfile
+    pull_policy: always
     container_name: cs-ecommerce
     restart: unless-stopped
     env_file:
@@ -64,17 +66,13 @@ services:
     networks: [backend]
 
   backend:
-    # 客服 Agent：FastAPI + LangChain + PostgreSQL(pgvector)
     image: ${REGISTRY:-ghcr.io}/txjws05-debug/customer-service-api:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    pull_policy: always
     container_name: cs-backend
     restart: unless-stopped
     env_file:
       - ./deploy/backend.env
     environment:
-      # 容器内网络：指向中台服务名，而非 127.0.0.1
       COMMERCE_API_BASE_URL: http://ecommerce:18081
       APP_HOST: 0.0.0.0
       APP_PORT: "18082"
@@ -93,18 +91,14 @@ services:
     networks: [backend]
 
   frontend:
-    # Next.js 16 前端（standalone 产物）
     image: ${REGISTRY:-ghcr.io}/txjws05-debug/customer-service-web:${IMAGE_TAG:-latest}
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    pull_policy: always
     container_name: cs-frontend
     restart: unless-stopped
     environment:
       NODE_ENV: production
       PORT: "3000"
       HOSTNAME: 0.0.0.0
-      # 与构建期保持一致：相对路径 + Caddy 反代
       NEXT_PUBLIC_API_BASE: ""
       TZ: Asia/Shanghai
     depends_on:
@@ -112,10 +106,7 @@ services:
         condition: service_started
     networks: [backend]
 
-  # ==================== 入口 ====================
   caddy:
-    # 反向代理。Caddy 的 reverse_proxy 默认就是流式的，
-    # SSE（/api/chat/stream）不会被缓冲。
     image: caddy:2-alpine
     container_name: cs-caddy
     restart: unless-stopped

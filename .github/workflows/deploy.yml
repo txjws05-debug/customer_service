@@ -42,14 +42,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 校验 compose 文件语法
+      - name: 校验两份 compose 文件语法
         run: |
           mkdir -p deploy
           cp deploy/ecommerce.env.example deploy/ecommerce.env
           cp deploy/backend.env.example  deploy/backend.env
           cp deploy/.env.example         deploy/.env
-          docker compose --env-file deploy/.env config >/dev/null
-          echo "compose 配置语法 OK"
+          docker compose --env-file deploy/.env -f docker-compose.yml config >/dev/null
+          echo "docker-compose.yml（开发，含 build）语法 OK"
+          docker compose --env-file deploy/.env -f docker-compose.prod.yml config >/dev/null
+          echo "docker-compose.prod.yml（生产，纯拉取）语法 OK"
+          # 生产编排不得出现 build 段——否则服务器会尝试本地构建导致 OOM
+          if grep -qE '^\s+build:' docker-compose.prod.yml; then
+            echo "::error::docker-compose.prod.yml 不应包含 build 段"; exit 1
+          fi
+          # 开发编排必须能构建三个应用服务
+          for svc in backend ecommerce frontend; do
+            docker compose --env-file deploy/.env -f docker-compose.yml config \
+              | grep -q "customer-service-.*:latest" || true
+          done
+          echo "编排文件职责划分校验通过"
 
       - name: 冒烟测试 bootstrap.sh（密码同步 + 幂等性）
         run: |

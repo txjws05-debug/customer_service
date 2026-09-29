@@ -70,14 +70,33 @@ else
   printf '\nIMAGE_TAG=%s\n' "$TAG" >> "$ENV_FILE"
 fi
 
+# ---------- 选择编排文件 ----------
+# 生产部署使用 docker-compose.prod.yml（只有 image:，纯拉取，不在服务器构建）。
+# 服务器内存有限（2C2G），本地构建 Next.js 极易 OOM，因此 CI 路径必须走镜像。
+COMPOSE_FILE="docker-compose.yml"
+if [[ -f docker-compose.prod.yml ]]; then
+  COMPOSE_FILE="docker-compose.prod.yml"
+fi
+echo "==> 使用编排文件: ${COMPOSE_FILE}"
+
+dc() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
+
 # ---------- 拉取并重启 ----------
 echo "==> 部署镜像 tag: ${TAG}"
-docker compose --env-file "$ENV_FILE" pull
+if ! dc pull; then
+  echo "" >&2
+  echo "!! 拉取镜像失败。常见原因：" >&2
+  echo "   1) GHCR 上的包是私有的 —— 在 GitHub Packages 页面把三个包设为 public，" >&2
+  echo "      或执行 docker login ghcr.io -u <用户名> -p <read:packages 的 PAT>" >&2
+  echo "   2) CI 尚未成功构建过镜像 —— 检查 Actions 里 build 三个 job 的状态" >&2
+  exit 1
+fi
+
 # --remove-orphans 会清掉已从 compose 中移除的服务（例如原先的 MySQL）
-docker compose --env-file "$ENV_FILE" up -d --remove-orphans
+dc up -d --remove-orphans
 
 # 清理历史镜像，防止磁盘被旧镜像撑满
 docker image prune -f --filter "until=72h" >/dev/null 2>&1 || true
 
 echo "==> 当前容器状态"
-docker compose --env-file "$ENV_FILE" ps
+dc ps
