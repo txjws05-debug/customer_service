@@ -1,0 +1,159 @@
+services:
+  # ==================== 基础设施 ====================
+  postgres:
+    # pgvector 官方镜像：已内置 vector 扩展，可直接当向量库用
+    image: pgvector/pgvector:pg16
+    container_name: cs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cs_pass_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-customer_service}
+      TZ: Asia/Shanghai
+    command:
+      - postgres
+      # 2C2G 机器必须压小内存占用；可用连接数也相应收紧
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - max_connections=50
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # 首次初始化时自动 CREATE EXTENSION vector
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cs} -d ${POSTGRES_DB:-customer_service}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [backend]
+
+  mysql:
+    # 电商中台使用 MySQL（与课程技术栈保持一致）
+    image: mysql:8.0
+    container_name: cs-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_pass_change_me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-atguigu_commerce}
+      MYSQL_USER: ${MYSQL_USER:-app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-app_pass_change_me}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # 2C2G 机器保守配置，避免 MySQL 抢占全部内存
+      - --innodb-buffer-pool-size=128M
+      - --performance-schema=OFF
+      - --max-connections=50
+    volumes:
+      - mysqldata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    networks: [backend]
+
+  # ==================== 应用服务 ====================
+  ecommerce:
+    # 电商中台：为客服 Agent 提供订单 / 物流 / 商品数据
+    image: ${REGISTRY:-ghcr.io}/txjws05-debug/customer-service-ecommerce:${IMAGE_TAG:-latest}
+    container_name: cs-ecommerce
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-app}:${MYSQL_PASSWORD:-app_pass_change_me}@mysql:3306/${MYSQL_DATABASE:-atguigu_commerce}?charset=utf8mb4
+      APP_HOST: 0.0.0.0
+      APP_PORT: "18081"
+      SEED_ON_STARTUP: "true"
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18081/health',timeout=3).status==200 else 1)\""]
+      interval: 15s
+      timeout: 8s
+      retries: 8
+      start_period: 30s
+    networks: [backend]
+
+  backend:
+    # 客服 Agent：FastAPI + LangChain + PostgreSQL(pgvector)
+    image: ${REGISTRY:-ghcr.io}/txjws05-debug/customer-service-api:${IMAGE_TAG:-latest}
+    container_name: cs-backend
+    restart: unless-stopped
+    env_file:
+      - ./deploy/backend.env
+    environment:
+      # 容器内网络：指向中台服务名，而非 127.0.0.1
+      COMMERCE_API_BASE_URL: http://ecommerce:18081
+      APP_HOST: 0.0.0.0
+      APP_PORT: "18082"
+      TZ: Asia/Shanghai
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ecommerce:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18082/docs',timeout=3).status==200 else 1)\""]
+      interval: 15s
+      timeout: 8s
+      retries: 8
+      start_period: 30s
+    networks: [backend]
+
+  frontend:
+    # Next.js 16 前端（standalone 产物）
+    image: ${REGISTRY:-ghcr.io}/txjws05-debug/customer-service-web:${IMAGE_TAG:-latest}
+    container_name: cs-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      # 与构建期保持一致：相对路径 + Caddy 反代
+      NEXT_PUBLIC_API_BASE: ""
+      TZ: Asia/Shanghai
+    depends_on:
+      backend:
+        condition: service_started
+    networks: [backend]
+
+  # ==================== 入口 ====================
+  caddy:
+    # 反向代理。Caddy 的 reverse_proxy 默认就是流式的，
+    # SSE（/api/chat/stream）不会被缓冲。
+    image: caddy:2-alpine
+    container_name: cs-caddy
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    depends_on:
+      - frontend
+      - backend
+    networks: [backend]
+
+volumes:
+  pgdata:
+  mysqldata:
+  caddydata:
+  caddyconfig:
+
+networks:
+  backend:
+    driver: bridge

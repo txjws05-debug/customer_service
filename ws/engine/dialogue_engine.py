@@ -11,6 +11,7 @@ from ws.knowledge.handle import KnowledgeHandler
 from ws.plan.models import TurnPlan, TurnPlanValidationResult, ClarifyReason
 from ws.plan.turn_plan import TurnPlanner
 from ws.plan.turn_plan_validation import TurnPlanValidation
+from ws.prompts.history_compactor import maybe_compact_history
 from ws.task.command.models import SetSlotsCommand
 from ws.task.flow.models import Flow
 from ws.task.flow.steps import FlowStep, CollectSlotStep
@@ -35,6 +36,8 @@ class DialogueEngine:
     async def process_message(self,state:DialogueState,user_message:UserMessage)->ProcessResult:
         #准备当前会话
         self._prepare_session(state)
+        #上下文过长时压缩旧历史
+        await maybe_compact_history(state.share.sessions[-1])
         #准备本来Turn
         turn=Turn(turn_id=str(uuid.uuid4()),user_message=user_message)
         #3判断消息类型
@@ -62,6 +65,7 @@ class DialogueEngine:
     async def process_message_stream(
             self,state:DialogueState,user_message:UserMessage)->AsyncIterator[str]:
         self._prepare_session(state)
+        await maybe_compact_history(state.share.sessions[-1])
         turn=Turn(turn_id=str(uuid.uuid4()),user_message=user_message)
 
         if user_message.type==MessageType.TEXT:

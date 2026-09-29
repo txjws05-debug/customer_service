@@ -4,6 +4,7 @@ from ws.knowledge.intents import KnowledgeIntent, KNOWLEDGE_INTENTS
 from ws.knowledge.provider import KnowledgeProvider, KnowledgeChunk
 from ws.knowledge.registry import KnowledgeProviderRegistry
 from ws.knowledge.responder import KnowledgeResponder
+from ws.prompts.history_builder import HistoryBuilder
 
 #对外调用方法，负责处理知识检索过程
 class KnowledgeHandler:
@@ -36,11 +37,12 @@ class KnowledgeHandler:
                 user_message=user_message,
             )
             final_result.extend(result)
-        #把provider对象的方法执行得到结果提交llm，整理返回最终答案
-        response=await self.knowledge_responder.respond(
+        # 把provider对象的方法执行得到结果提交llm，整理返回最终答案
+        response = await self.knowledge_responder.respond(
             chunks=final_result,
             user_message=user_message,
-            turns=state.share.sessions[-1].turns,
+            history=HistoryBuilder.build_session(
+                state.share.sessions[-1]),
         )
         return [response]
     # 流式版本：检索完成后，逐段 yield LLM 整理的最终答案
@@ -60,7 +62,8 @@ class KnowledgeHandler:
         async for delta in self.knowledge_responder.stream(
             chunks=final_result,
             user_message=user_message,
-            turns=state.share.sessions[-1].turns,
+            history=HistoryBuilder.build_session(
+                state.share.sessions[-1]),
         ):
             yield delta
     #根据意图识别结果找到答案位置 并去重

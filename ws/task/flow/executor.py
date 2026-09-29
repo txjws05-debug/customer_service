@@ -8,6 +8,7 @@ from ws.task.flow.models import FlowCatalog, Flow
 from ws.task.flow.steps import FlowStep, StartFlowStep, ResponseFlowStep, CollectSlotStep, ActionFlowStep, \
     EndFlowStep
 from ws.task.response.render import ResponseRender
+from ws.utils.safe_eval import evaluate_condition
 
 class FlowExecutor:
     def __init__(self,response_renderer:ResponseRender,action_runner):
@@ -99,7 +100,7 @@ class FlowExecutor:
                         yield delta
                     return
                 if step.validation:
-                    ok=bool(eval(step.validation.condition,{},{'slots':slots}))
+                    ok=evaluate_condition(step.validation.condition, slots)
                     if not ok:
                         slots.pop(step.solt_name)
                         async for delta in self.response_renderer.render_stream(
@@ -136,7 +137,8 @@ class FlowExecutor:
         for link in next :
             if isinstance(link,ConditionalLink):
                 #从state里面获取需要数据，和if条件比较条件是否成立
-                result=bool(eval(link.condition,{},{"slots":state.tasks.active.slots}))
+                result=evaluate_condition(
+                    link.condition, state.tasks.active.slots)
                 if result:
                     return link.target
                 continue
@@ -174,7 +176,9 @@ class FlowExecutor:
         #6如果没有validation校验，直接推进下一步
             else:
                 #7 如果有validation校验，判断校验条件是否成立，方法eval
-                result=bool(eval(step.validation.condition,{},{'slots':state.tasks.active.slots}))
+                result=evaluate_condition(
+                    step.validation.condition,
+                    state.tasks.active.slots)
 
         #8如果校验成立，推进下一步
         if result:

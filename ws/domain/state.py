@@ -22,6 +22,9 @@ class Session:
     last_activity_at: float
     closed_at: float | None = None
     turns: list[Turn]=field(default_factory=list)
+    # 早期对话的压缩摘要与已摘要轮数：上下文过长时用摘要替代旧原文
+    history_summary: str = ""
+    summarized_turn_count: int = 0
 #对象类型消息
 @dataclass
 class FocusedObject:

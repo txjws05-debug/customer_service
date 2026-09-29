@@ -19,9 +19,26 @@ build/
 dist/
 *.egg-info/
 
+# Next.js
+frontend/.next/
+frontend/node_modules/
+frontend/tsconfig.tsbuildinfo
+frontend/next-env.d.ts
+
+# Test / cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
 # OS
 .DS_Store
 Thumbs.db
 
-# Secrets / local env
+# ===== Secrets / local env =====
 .env
+.env.*
+!.env.example
+# 部署密钥（无点前缀，需单独排除）
+deploy/.env
+deploy/backend.env
+ecommerce-service-backend/.env

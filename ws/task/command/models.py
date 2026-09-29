@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from ws.utils.errors import ChatServiceError
+
 # 数据模型，封装意图识别组件返回数据
 @dataclass
 class Command:
@@ -11,7 +13,10 @@ class Command:
     @classmethod
     def from_dict(cls,command_data: dict) -> "Command":
         # clz  StartFlowCommand
-        clz = COMMAND_NAME_TO_CLASS[command_data["command"]]
+        name = command_data.get("command")
+        clz = COMMAND_NAME_TO_CLASS.get(name)
+        if clz is None:
+            raise ChatServiceError(f"未知指令：{name}")
         return clz(**command_data)
 
 

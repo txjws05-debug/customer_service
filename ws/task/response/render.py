@@ -7,6 +7,7 @@ from ws.domain.state import DialogueState
 from ws.prompts.history_builder import HistoryBuilder
 from ws.task.response.models import ResponseTemplate, ResponseMode
 from ws.utils.llm_client import llm
+from ws.utils.llm_errors import as_chat_service_error
 
 
 #数据渲染
@@ -33,15 +34,18 @@ class ResponseRender:
             prompt=PromptTemplate.from_template(template.prompt,template_format='jinja2')
             #调用llm。返回结果
             chain=prompt|llm|StrOutputParser()
-            res=await chain.ainvoke(
-                {
-                    "history": HistoryBuilder.build(
-                        state.share.sessions[-1].turns
-                    ),
-                    "user_message": HistoryBuilder.render_user_message(user_message),
-                    "current_response": render_text
-                }
-            )
+            try:
+                res=await chain.ainvoke(
+                    {
+                        "history": HistoryBuilder.build_session(
+                            state.share.sessions[-1]
+                        ),
+                        "user_message": HistoryBuilder.render_user_message(user_message),
+                        "current_response": render_text
+                    }
+                )
+            except Exception as exc:
+                raise as_chat_service_error(exc)
             #封装BotMessage
             return BotMessage(text=res)
         #generate :根据提示词，调用llm生成结果，没有text文本
@@ -50,12 +54,15 @@ class ResponseRender:
                 template.prompt,template_format="jinja2",
             )
             chain=prompt|llm|StrOutputParser()
-            res=await chain.ainvoke({
-                "history": HistoryBuilder.build(
-                state.share.sessions[-1].turns
-            ),
-            "user_message":HistoryBuilder.render_user_message(user_message)
-            })
+            try:
+                res=await chain.ainvoke({
+                    "history": HistoryBuilder.build_session(
+                    state.share.sessions[-1]
+                ),
+                "user_message":HistoryBuilder.render_user_message(user_message)
+                })
+            except Exception as exc:
+                raise as_chat_service_error(exc)
             return BotMessage(text=res)
 
     # 流式渲染：yield 文本增量（static 一次性给出，rephrase/generate 逐 token）
@@ -74,22 +81,28 @@ class ResponseRender:
             prompt=PromptTemplate.from_template(
                 template.prompt,template_format='jinja2')
             chain=prompt|llm|StrOutputParser()
-            async for delta in chain.astream({
-                "history":HistoryBuilder.build(
-                    state.share.sessions[-1].turns),
-                "user_message":HistoryBuilder.render_user_message(user_message),
-                "current_response":render_text
-            }):
-                yield delta
+            try:
+                async for delta in chain.astream({
+                    "history":HistoryBuilder.build_session(
+                        state.share.sessions[-1]),
+                    "user_message":HistoryBuilder.render_user_message(user_message),
+                    "current_response":render_text
+                }):
+                    yield delta
+            except Exception as exc:
+                raise as_chat_service_error(exc)
             return
 
         if template.mode==ResponseMode.GENERATE:
             prompt=PromptTemplate.from_template(
                 template.prompt,template_format="jinja2")
             chain=prompt|llm|StrOutputParser()
-            async for delta in chain.astream({
-                "history":HistoryBuilder.build(
-                    state.share.sessions[-1].turns),
-                "user_message":HistoryBuilder.render_user_message(user_message)
-            }):
-                yield delta
+            try:
+                async for delta in chain.astream({
+                    "history":HistoryBuilder.build_session(
+                        state.share.sessions[-1]),
+                    "user_message":HistoryBuilder.render_user_message(user_message)
+                }):
+                    yield delta
+            except Exception as exc:
+                raise as_chat_service_error(exc)

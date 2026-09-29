@@ -1,0 +1,29 @@
+# Caddy 反向代理配置
+#
+# SITE_ADDRESS 由 docker-compose 的环境变量注入：
+#   - 没有域名：  默认 :80，直接用 http://<公网IP> 访问
+#   - 有域名：    设为 your.domain.com，Caddy 会自动申请并续期 HTTPS 证书
+#   - 无域名但要 HTTPS：设为 <IP>.nip.io（配合放行 443 端口）
+#
+# Caddy 的 reverse_proxy 默认不缓冲响应，SSE 流式输出可直接透传，
+# 因此 /api/chat/stream 的打字机效果在生产环境同样生效。
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# 后端 API：优先精确匹配，避免被前端的 / 兜底规则吃掉
+	@api path /api/* /docs /docs/* /redoc /redoc/* /openapi.json
+	handle @api {
+		reverse_proxy backend:18082
+	}
+
+	# 其余全部交给 Next.js
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

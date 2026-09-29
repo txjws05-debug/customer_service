@@ -1,0 +1,129 @@
+name: build-and-deploy
+
+# CI/CD：push 到 main 时构建镜像 → 推送到 GHCR → SSH 到服务器拉取重启
+# 服务器只做「拉取 + 重启」，不在 2C2G 机器上构建，避免 OOM 与长时间占用。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# GHCR 推送需要 packages: write
+permissions:
+  contents: read
+  packages: write
+
+env:
+  # ghcr.io 要求镜像名全小写；GitHub 用户名本身已是小写
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/customer-service
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------- 1. 后端：跑单测，同时验证 pyproject/uv.lock 一致 ----------
+  backend-verify:
+    name: verify backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: 安装依赖（frozen，校验 uv.lock 与 pyproject 一致）
+        run: uv sync --frozen
+      - name: 运行单元测试
+        run: uv run --frozen pytest -q
+
+  # ---------- 2. 前端：类型检查 + 生产构建 ----------
+  frontend-verify:
+    name: verify frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - name: 生产构建
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_BASE: ""
+
+  # ---------- 3. 构建并推送三个镜像 ----------
+  build-and-push:
+    name: build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    needs: [backend-verify, frontend-verify]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: .
+            file: ./Dockerfile
+            image: customer-service-api
+          - name: ecommerce
+            context: ./ecommerce-service-backend
+            file: ./ecommerce-service-backend/Dockerfile
+            image: customer-service-ecommerce
+          - name: web
+            context: ./frontend
+            file: ./frontend/Dockerfile
+            image: customer-service-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}:latest
+          # 前端需要把 API 基址固定为空字符串（相对路径 + 反向代理）
+          build-args: |
+            NEXT_PUBLIC_API_BASE=
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  # ---------- 4. 部署到服务器 ----------
+  deploy:
+    name: deploy to server
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+    steps:
+      - name: SSH 拉取镜像并重启
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script_stop: true
+          envs: IMAGE_TAG,APP_DIR
+          script: |
+            set -e
+            cd "$APP_DIR"
+            IMAGE_TAG="$IMAGE_TAG" bash deploy/deploy.sh
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          APP_DIR: ${{ secrets.SERVER_APP_DIR }}

@@ -5,10 +5,12 @@ from ws.task.action.base import Action
 from ws.task.action.registry import ActionRegistry
 from ws.task.custom.logistics_tracking import LookupTracking
 from ws.task.custom.lookup_order_status import LookupOrderStatus
+from ws.task.custom.similar_products import RecommendSimilarProducts
 
 def register_service_action(registry: ActionRegistry):
     registry.register_action(LookupTracking())
     registry.register_action(LookupOrderStatus())
+    registry.register_action(RecommendSimilarProducts())
 
 def register_custom_actions(
         registry: ActionRegistry,

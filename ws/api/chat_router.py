@@ -12,6 +12,7 @@ from ws.api.deps import get_dialogue_service, get_current_user
 from ws.domain.message import UserMessage,ProcessResult,MessageType,MessageObject
 from ws.domain.state import DialogueState, Session, Turn
 from ws.service.dialogue_service import DialogueService
+from ws.utils.errors import ChatServiceError
 
 chat_router=APIRouter()
 
@@ -34,9 +35,13 @@ async def chat_stream(chat_request:ChatRequest,
     user_message:UserMessage=_build_user_message(chat_request,current_user)
 
     async def event_generator():
-        async for delta in dialogue_service.process_message_stream(user_message):
-            if delta:
-                yield f"data: {json.dumps({'text': delta}, ensure_ascii=False)}\n\n"
+        try:
+            async for delta in dialogue_service.process_message_stream(user_message):
+                if delta:
+                    yield f"data: {json.dumps({'text': delta}, ensure_ascii=False)}\n\n"
+        except ChatServiceError as exc:
+            # 流式过程中的业务错误，作为 error 事件下发，再正常结束
+            yield f"data: {json.dumps({'error': str(exc)}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(),
