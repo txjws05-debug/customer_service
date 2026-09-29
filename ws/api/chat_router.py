@@ -1,12 +1,14 @@
+import json
 import uuid
 from dataclasses import asdict
 
 from fastapi import APIRouter
 from  fastapi.params import Depends
+from fastapi.responses import StreamingResponse
 
 from ws.api.schemas import HistoryResponse
 from ws.api.schemas import ChatRequest, ChatResponse, ChatMessage, ChatObject, HistoryMessage
-from ws.api.depends import get_dialogue_service
+from ws.api.deps import get_dialogue_service, get_current_user
 from ws.domain.message import UserMessage,ProcessResult,MessageType,MessageObject
 from ws.domain.state import DialogueState, Session, Turn
 from ws.service.dialogue_service import DialogueService
@@ -16,17 +18,34 @@ chat_router=APIRouter()
 
 @chat_router.post("/api/chat")
 async def chat(chat_request:ChatRequest ,
+         current_user:str=Depends(get_current_user),
          dialogue_service:DialogueService=Depends(get_dialogue_service)
          )->ChatResponse:
 
-    user_message:UserMessage=_build_user_message(chat_request)
+    user_message:UserMessage=_build_user_message(chat_request,current_user)
     process_result:ProcessResult=await dialogue_service.process_message(user_message)
     return _build_chat_response(process_result)
 
+# 流式对话（SSE）：逐段返回 {"text": "增量"}，结束发 [DONE]
+@chat_router.post("/api/chat/stream")
+async def chat_stream(chat_request:ChatRequest,
+                      current_user:str=Depends(get_current_user),
+                      dialogue_service:DialogueService=Depends(get_dialogue_service)):
+    user_message:UserMessage=_build_user_message(chat_request,current_user)
+
+    async def event_generator():
+        async for delta in dialogue_service.process_message_stream(user_message):
+            if delta:
+                yield f"data: {json.dumps({'text': delta}, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(),
+                             media_type="text/event-stream")
+
 #ChatRequest转换 UserMessage
-def _build_user_message(chat_request:ChatRequest)->UserMessage:
+def _build_user_message(chat_request:ChatRequest,sender_id:str)->UserMessage:
     return UserMessage(
-         sender_id=chat_request.sender_id,
+         sender_id=sender_id,
          message_id=chat_request.message_id
          if chat_request.message_id else str (uuid.uuid4()),
          type=MessageType.TEXT if chat_request.text else MessageType.OBJECT,
@@ -56,12 +75,12 @@ def _build_chat_response(process_result:ProcessResult)->ChatResponse:
     )
 # 返回当前用户历史记录
 @chat_router.post("/api/chat/history")
-async def chat_history(sender_id:str,
+async def chat_history(current_user:str=Depends(get_current_user),
                        dialogue_service:DialogueService=Depends(get_dialogue_service)
                        )->HistoryResponse:
     #调用service方法，返回 查询出来的DialogueState对象
     history_session:DialogueState=(
-        await dialogue_service.get_history_session_send_id(sender_id)
+        await dialogue_service.get_history_session_send_id(current_user)
     )
     #history_session:DialogueState取出来，封装到iHistoryResponse
     sessions:list[Session] = history_session.share.sessions
@@ -97,4 +116,4 @@ async def chat_history(sender_id:str,
                 for bo_msg in turn.bot_message
             ])
 
-    return HistoryResponse(sender_id=sender_id,messages=messages)
+    return HistoryResponse(sender_id=current_user,messages=messages)

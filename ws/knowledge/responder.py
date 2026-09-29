@@ -37,3 +37,21 @@ class KnowledgeResponder:
 
         })
         return BotMessage(text=result)
+
+    # 流式版本：基于检索到的 chunks，逐段 yield LLM 整理结果
+    async def stream(self,
+                     chunks: list[KnowledgeChunk],
+                     user_message: UserMessage,
+                     turns:list[Turn]):
+        prompt_text= load_prompt("knowledge_respond")
+        prompt=PromptTemplate.from_template(
+            prompt_text,template_format="jinja2",
+        )
+        chain=prompt | llm| StrOutputParser()
+        async for delta in chain.astream(input={
+            "user_message": HistoryBuilder.render_user_message(user_message),
+            "history":HistoryBuilder.build(turns),
+            "knowledge_content":'\n'.join(
+                [chunk.content for chunk in chunks])
+        }):
+            yield delta

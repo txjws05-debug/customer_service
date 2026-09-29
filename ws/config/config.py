@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     #商城 API
     commerce_api_base_url: str
 
+    #JWT（本地演示，密钥给了默认值；上线请通过环境变量覆盖）
+    jwt_secret_key: str = "customer-service-dev-secret-please-change"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 720
+
     #服务器
     app_host:str
     app_port:int

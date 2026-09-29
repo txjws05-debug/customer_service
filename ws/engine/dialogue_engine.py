@@ -1,5 +1,6 @@
 import time
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import asdict
 
 from ws.chitchat.handler import ChitchatHandler
@@ -56,6 +57,73 @@ class DialogueEngine:
             message_id=user_message.message_id,
             messages=messages
         )
+
+    # 流式处理消息：逐段 yield 文本增量，结束后把完整回复写入 turn/state
+    async def process_message_stream(
+            self,state:DialogueState,user_message:UserMessage)->AsyncIterator[str]:
+        self._prepare_session(state)
+        turn=Turn(turn_id=str(uuid.uuid4()),user_message=user_message)
+
+        if user_message.type==MessageType.TEXT:
+            gen=self._stream_text(user_message,state)
+        else:
+            gen=self._stream_object(user_message,state)
+
+        parts:list[str]=[]
+        async for delta in gen:
+            parts.append(delta)
+            yield delta
+
+        turn.bot_message.append(BotMessage(text="".join(parts)))
+        state.share.sessions[-1].turns.append(turn)
+
+    async def _stream_text(self,user_message:UserMessage,
+                           state:DialogueState)->AsyncIterator[str]:
+        turnPlan:TurnPlan=await self._turn_plan.plan(
+            user_message=user_message,state=state,
+            knowledge_intents=self._knowledge_handler.knowledge_intents,
+            flow_catalog=self._task_handler._flow_catalog)
+        validation:TurnPlanValidationResult=self._turn_plan_validation.validate(
+            turn_plan=turnPlan,state=state,
+            flow_catalog=self._task_handler._flow_catalog)
+
+        if not validation.valid:
+            async for d in self._clarify_responder.stream(
+                    reason=validation.reason,state=state,user_message=user_message):
+                yield d
+            return
+        if turnPlan.task:
+            async for d in self._task_handler.stream(
+                    commands=turnPlan.task.commands,state=state,user_message=user_message):
+                yield d
+            return
+        if turnPlan.knowledge:
+            async for d in self._knowledge_handler.stream(
+                    knowledge_intents=turnPlan.knowledge.intents,
+                    user_message=user_message,state=state):
+                yield d
+            return
+        async for d in self._chitchat_handler.stream(state=state,user_message=user_message):
+            yield d
+
+    async def _stream_object(self,user_message:UserMessage,
+                             state:DialogueState)->AsyncIterator[str]:
+        state.share.focuse_object=FocusedObject(**asdict(user_message.object))
+        if self._can_fill_slots(state):
+            if user_message.object.type=='order':
+                slots={'order_number':user_message.object.id}
+            else:
+                slots={'product_id':user_message.object.id}
+            command=SetSlotsCommand(command='set_slots',slots=slots)
+            async for d in self._task_handler.stream(
+                    commands=[command],state=state,user_message=user_message):
+                yield d
+        else:
+            async for d in self._clarify_responder.stream(
+                    reason=ClarifyReason.OBJECT_REQUIRES_INTENT,
+                    state=state,user_message=user_message):
+                yield d
+
     def _prepare_session(self,state:DialogueState):
         #判断当前session存在
         #不存在session

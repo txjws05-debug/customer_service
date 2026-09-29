@@ -2,7 +2,7 @@ import asyncio
 
 from pydantic import TypeAdapter
 from sqlalchemy import select
-from sqlalchemy.dialects.mysql import insert
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ws.domain.state import DialogueState
@@ -47,8 +47,9 @@ class DialogueRepository:
             sender_id=state.sender_id,
             state_json=state_json
         )
-        on_duplicate_key=statement.on_duplicate_key_update(
-            state_json=state_json
+        on_duplicate_key=statement.on_conflict_do_update(
+            index_elements=['sender_id'],
+            set_=dict(state_json=state_json)
         )
         await self.session.execute(on_duplicate_key)
         await self.session.commit()

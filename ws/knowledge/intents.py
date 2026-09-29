@@ -27,7 +27,7 @@ KNOWLEDGE_INTENTS :dict[str,KnowledgeIntent]={
     ),
     "return_policy":KnowledgeIntent(
         id="return_policy",description="退货政策咨询",
-        provider_ids=["fag.default","rag.default"],
+        provider_ids=["faq.default","rag.default"],
     ),
     "shipping_policy": KnowledgeIntent(
         id="shipping_policy", description="配送政策咨询",

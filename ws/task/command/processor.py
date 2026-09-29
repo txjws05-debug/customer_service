@@ -15,7 +15,7 @@ class CommandProcessor:
         for command in commands:
             event=self._apply(command=command,
                                state=state,
-                               flows=flows)
+                               flow_catalog=flows)
             if event:
                 events.append(event)
         return events

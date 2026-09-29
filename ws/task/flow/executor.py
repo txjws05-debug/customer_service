@@ -23,8 +23,8 @@ class FlowExecutor:
         #有
         for _ in range(100):
             #推进步骤实现
-            flows:Flow = flows.get_flow_by_id(state.tasks.active.flow_id)
-            step:FlowStep =flows.get_step_by_id(state.tasks.active.step_id)
+            flow:Flow = flows.get_flow_by_id(state.tasks.active.flow_id)
+            step:FlowStep =flow.get_step_by_id(state.tasks.active.step_id)
             #判断步骤类型
             if isinstance(step,StartFlowStep):
                  self._run_step(step,state)
@@ -67,6 +67,59 @@ class FlowExecutor:
             if isinstance(step, EndFlowStep):
                 state.tasks.active = None
                 return bot_messages
+
+    # 流式版本：推进流程，逐段 yield 回复文本
+    async def run_task_stream(self,state:DialogueState,
+                              user_message:UserMessage,
+                              flows:FlowCatalog):
+        if not state.tasks.active:
+            return
+        for _ in range(100):
+            flow:Flow = flows.get_flow_by_id(state.tasks.active.flow_id)
+            step:FlowStep = flow.get_step_by_id(state.tasks.active.step_id)
+
+            if isinstance(step,StartFlowStep):
+                self._run_step(step,state)
+                continue
+
+            if isinstance(step,ResponseFlowStep):
+                async for delta in self.response_renderer.render_stream(
+                        step.template,state,user_message):
+                    yield delta
+                self._run_step(step,state)
+                continue
+
+            if isinstance(step,CollectSlotStep):
+                slots=state.tasks.active.slots
+                if not slots.get(step.solt_name):
+                    self.get_slot_data_focused_object(step,state)
+                if not slots.get(step.solt_name):
+                    async for delta in self.response_renderer.render_stream(
+                            step.template,state,user_message):
+                        yield delta
+                    return
+                if step.validation:
+                    ok=bool(eval(step.validation.condition,{},{'slots':slots}))
+                    if not ok:
+                        slots.pop(step.solt_name)
+                        async for delta in self.response_renderer.render_stream(
+                                step.validation.failure_template,state,user_message):
+                            yield delta
+                        return
+                self._run_step(step,state)
+                continue
+
+            if isinstance(step,ActionFlowStep):
+                action_call=ActionCall(step.action,step.args)
+                action_result:ActionResult=await self._action_runner.run(
+                    action_call=action_call,state=state)
+                state.tasks.active.slots.update(action_result.slot_updates)
+                self._run_step(step,state)
+                continue
+
+            if isinstance(step,EndFlowStep):
+                state.tasks.active=None
+                return
 
     def _run_step(self,step:FlowStep,state:DialogueState):
         #把当前步骤的next值设置当前ative里面步骤id

@@ -57,3 +57,39 @@ class ResponseRender:
             "user_message":HistoryBuilder.render_user_message(user_message)
             })
             return BotMessage(text=res)
+
+    # 流式渲染：yield 文本增量（static 一次性给出，rephrase/generate 逐 token）
+    async def render_stream(self,template:ResponseTemplate,
+                            state:DialogueState,
+                            user_message:UserMessage):
+        if template.mode==ResponseMode.STATIC:
+            render_text=Template(template.text).render(
+                slots=state.tasks.active.slots)
+            yield render_text
+            return
+
+        if template.mode==ResponseMode.REPHRASE:
+            render_text=Template(template.text).render(
+                slots=state.tasks.active.slots)
+            prompt=PromptTemplate.from_template(
+                template.prompt,template_format='jinja2')
+            chain=prompt|llm|StrOutputParser()
+            async for delta in chain.astream({
+                "history":HistoryBuilder.build(
+                    state.share.sessions[-1].turns),
+                "user_message":HistoryBuilder.render_user_message(user_message),
+                "current_response":render_text
+            }):
+                yield delta
+            return
+
+        if template.mode==ResponseMode.GENERATE:
+            prompt=PromptTemplate.from_template(
+                template.prompt,template_format="jinja2")
+            chain=prompt|llm|StrOutputParser()
+            async for delta in chain.astream({
+                "history":HistoryBuilder.build(
+                    state.share.sessions[-1].turns),
+                "user_message":HistoryBuilder.render_user_message(user_message)
+            }):
+                yield delta

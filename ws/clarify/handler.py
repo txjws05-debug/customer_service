@@ -26,7 +26,7 @@ class ClarifyResponder:
          chain = prompt| llm | StrOutputParser()
          response = await chain.ainvoke({
              "reason": reason.value,
-             "Clarify_message": self.build_clarify_message(reason=reason,
+             "clarify_message": self.build_clarify_message(reason=reason,
                                                            state=state),
              "focused_object" : json.dumps(
                  asdict(state.share.focuse_object)
@@ -37,6 +37,29 @@ class ClarifyResponder:
              "user_message":HistoryBuilder.render_user_message(user_message),
          })
          return [BotMessage(text=response)]
+
+     # 流式版本
+     async def stream(self,
+                      reason:ClarifyReason,
+                      state:DialogueState,
+                      user_message:UserMessage):
+         prompt_text=load_prompt("clarify_respond")
+         prompt=PromptTemplate.from_template(prompt_text,
+                                             template_format="jinja2")
+         chain = prompt| llm | StrOutputParser()
+         async for delta in chain.astream({
+             "reason": reason.value,
+             "clarify_message": self.build_clarify_message(reason=reason,
+                                                           state=state),
+             "focused_object" : json.dumps(
+                 asdict(state.share.focuse_object)
+                 if state.share.focuse_object else None,
+                 ensure_ascii=False,
+             ),
+             "history" : HistoryBuilder.build(state.share.sessions[-1].turns),
+             "user_message":HistoryBuilder.render_user_message(user_message),
+         }):
+             yield delta
 
      def build_clarify_message(self,
                                reason:ClarifyReason,
@@ -78,7 +101,7 @@ class ClarifyResponder:
              )
 
          if reason is ClarifyReason.OBJECT_REQUIRES_INTENT:
-             focused_object = state.shared.focused_object
+             focused_object = state.share.focuse_object
              if (
                      focused_object is not None
                      and focused_object.type == "order"

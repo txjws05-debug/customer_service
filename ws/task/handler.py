@@ -33,3 +33,16 @@ class TaskHandler:
         )
         messages.extend(result)
         return messages
+
+    # 流式版本：命令处理后，逐段 yield（生命周期提示 + 流程推进回复）
+    async def stream(self,commands:list[Command],
+                     state:DialogueState,
+                     user_message:UserMessage):
+        task_events:list[TaskEvent]=await self._command_processor.run(
+            commands=commands,state=state,flows=self._flow_catalog)
+        lifecycle_msgs:list[BotMessage]=await self._task_lifecycle.respond(task_events)
+        for m in lifecycle_msgs:
+            yield m.text
+        async for delta in self._flow_executor.run_task_stream(
+                state=state,user_message=user_message,flows=self._flow_catalog):
+            yield delta

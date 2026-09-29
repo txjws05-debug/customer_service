@@ -43,9 +43,29 @@ class KnowledgeHandler:
             turns=state.share.sessions[-1].turns,
         )
         return [response]
+    # 流式版本：检索完成后，逐段 yield LLM 整理的最终答案
+    async def stream(self,
+                     knowledge_intents: list[str],
+                     user_message: UserMessage,
+                     state:DialogueState):
+        provider_ids:list[str]=self.get_provider_ids(knowledge_intents)
+        final_result:list[KnowledgeChunk]=[]
+        for provider_id in provider_ids:
+            provider_obj=self.provider_registry.get(provider_id)
+            result=await provider_obj.retrieve(
+                state=state,
+                user_message=user_message,
+            )
+            final_result.extend(result)
+        async for delta in self.knowledge_responder.stream(
+            chunks=final_result,
+            user_message=user_message,
+            turns=state.share.sessions[-1].turns,
+        ):
+            yield delta
     #根据意图识别结果找到答案位置 并去重
     def get_provider_ids(self,knowledge_intents:list[str])->list[str]:
-        final_provider_ids=list[str]
+        final_provider_ids: list[str] = []
         #遍历得到每个意图识别结果值
         for intent in knowledge_intents:
             # 拿着图识别结果值，到字典找到位置
