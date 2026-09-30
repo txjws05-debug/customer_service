@@ -19,7 +19,7 @@ env:
   # -ecommerce / -web）。两者拼接后必须与 docker-compose.yml、
   # docker-compose.prod.yml 里的 image: 完全一致，否则 CI 推上去的包名
   # 与服务器要拉的包名对不上，表现为 `manifest unknown`。
-  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/customer-service
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -69,6 +69,44 @@ jobs:
               | grep -q "customer-service-.*:latest" || true
           done
           echo "编排文件职责划分校验通过"
+
+      - name: 校验 CI 推送的镜像名与 compose 拉取的一致
+        # 曾经的坑：workflow 里写成 ${IMAGE_PREFIX}-${matrix.image}，而 IMAGE_PREFIX
+        # 本身已含 customer-service，于是包名被拼成
+        # customer-service-customer-service-api，CI 一片绿、服务器 pull 却报
+        # manifest unknown。这里让 CI 自己把「推」和「拉」的名字对一遍。
+        run: |
+          set -e
+          PREFIX=$(sed -n 's/^  IMAGE_PREFIX: *//p' .github/workflows/deploy.yml | head -1)
+          echo "IMAGE_PREFIX = ${PREFIX}"
+          test -n "$PREFIX" || { echo "::error::workflow 里找不到 IMAGE_PREFIX"; exit 1; }
+
+          # IMAGE_PREFIX 只能到 owner 为止，不得再带包名前缀
+          case "$PREFIX" in
+            *customer-service*)
+              echo "::error::IMAGE_PREFIX 里已含包名（$PREFIX），会与 matrix.image 重复拼接"; exit 1 ;;
+          esac
+
+          fail=0
+          for pkg in customer-service-api customer-service-ecommerce customer-service-web; do
+            # 1) compose（生产 + 开发）必须按这个名字拉取
+            for f in docker-compose.prod.yml docker-compose.yml; do
+              grep -q "\${REGISTRY:-ghcr.io}/${GITHUB_REPOSITORY_OWNER}/${pkg}:" "$f" \
+                || { echo "::error::$f 未按 ${pkg} 拉取镜像"; fail=1; }
+            done
+            # 2) workflow 的 matrix.image 必须正好是这个名字
+            grep -qE "^\s+image: ${pkg}\s*$" .github/workflows/deploy.yml \
+              || { echo "::error::workflow 的 matrix.image 里缺少 ${pkg}"; fail=1; }
+          done
+          [ "$fail" -eq 0 ] || exit 1
+
+          # 3) 渲染出真实标签，确认与 compose 完全一致（含 / 与 - 的拼接方式）
+          for pkg in customer-service-api customer-service-ecommerce customer-service-web; do
+            echo "  CI 将推送: ${PREFIX}/${pkg}:latest"
+            grep -q "\${REGISTRY:-ghcr.io}/${GITHUB_REPOSITORY_OWNER}/${pkg}:" docker-compose.prod.yml \
+              || { echo "::error::标签不一致：${pkg}"; exit 1; }
+          done
+          echo "镜像名「推/拉」一致性校验通过"
 
       - name: 冒烟测试 bootstrap.sh（密码同步 + 幂等性）
         run: |
