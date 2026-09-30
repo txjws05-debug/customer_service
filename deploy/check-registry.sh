@@ -22,9 +22,9 @@ for pkg in customer-service-api customer-service-ecommerce customer-service-web;
 
   case "$code" in
     200) meaning="已公开，可直接拉取" ;;
-    401) meaning="存在但私有 —— 需 docker login 或设为 public" ;;
-    403) meaning="无权限 / 镜像不存在" ;;
-    404) meaning="镜像不存在（CI 未成功推送过）" ;;
+    401) meaning="需认证 —— 匿名请求一律 401，无法据此判断包是否存在" ;;
+    403) meaning="无权限" ;;
+    404) meaning="确认不存在（CI 未成功推送过）" ;;
     000) meaning="网络不可达（检查 DNS / 出网）" ;;
     *)   meaning="未知状态" ;;
   esac
@@ -44,9 +44,14 @@ case "$overall" in
     echo "  docker compose -f docker-compose.prod.yml --env-file deploy/.env up -d"
     ;;
   private)
-    echo "结论：镜像存在但为私有。二选一："
-    echo "  A) 在 GitHub → Packages 把三个包设为 public（推荐，一次搞定）"
-    echo "  B) docker login ghcr.io -u ${OWNER} -p <read:packages 的 PAT>"
+    echo "结论：匿名请求返回 401，无法判断包究竟「存在但私有」还是「根本不存在」"
+    echo "      （GHCR 对匿名请求一律返回 401，不区分两者）。"
+    echo "先用带 read:packages 的 PAT 复核真实存在性："
+    echo "  docker login ghcr.io -u ${OWNER} -p <read:packages 的 PAT>"
+    echo "  docker manifest inspect ghcr.io/${OWNER}/customer-service-api:latest >/dev/null \\"
+    echo "    && echo '镜像存在' || echo '镜像不存在'"
+    echo "  A) 若存在：在 GitHub → Packages 把三个包设为 public（推荐，一次搞定）"
+    echo "  B) 若不存在：说明 CI 的 build 阶段从未成功推送，先修 CI"
     echo "完成后执行："
     echo "  docker compose -f docker-compose.prod.yml --env-file deploy/.env up -d"
     ;;

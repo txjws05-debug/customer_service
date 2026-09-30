@@ -30,3 +30,9 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# 本项目是 uv 虚拟工程（uv.lock 里 source = { virtual = "." }），自身不会被安装进
+# 环境，因此 ws 只能从源码树导入。而 `pytest` 这个 console script 不会像
+# `python -m pytest` 那样把当前工作目录塞进 sys.path（它只把 tests/ 目录塞进去），
+# 所以在 CI 里 `uv run pytest` 会直接报 ModuleNotFoundError: No module named 'ws'。
+# 显式声明仓库根目录，保证无论用哪种方式启动 pytest 都能导入 ws。
+pythonpath = ["."]

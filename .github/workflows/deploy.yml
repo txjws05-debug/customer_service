@@ -13,7 +13,12 @@ permissions:
   packages: write
 
 env:
-  # ghcr.io 要求镜像名全小写；GitHub 用户名本身已是小写
+  # ghcr.io 要求镜像名全小写；GitHub 用户名本身已是小写。
+  #
+  # 这里只拼到 owner 为止，包名由 matrix.image 提供（customer-service-api /
+  # -ecommerce / -web）。两者拼接后必须与 docker-compose.yml、
+  # docker-compose.prod.yml 里的 image: 完全一致，否则 CI 推上去的包名
+  # 与服务器要拉的包名对不上，表现为 `manifest unknown`。
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/customer-service
 
 concurrency:
@@ -30,10 +35,12 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - name: 安装依赖（frozen，校验 uv.lock 与 pyproject 一致）
-        run: uv sync --frozen
+      - name: 安装依赖（locked：uv.lock 与 pyproject 不一致则直接失败）
+        # 注意：--frozen 只是「不要改 lock」，并不校验 lock 与 pyproject 是否一致；
+        # 想真正校验必须用 --locked。这一步同时也是对锁文件一致性的守门。
+        run: uv sync --locked
       - name: 运行单元测试
-        run: uv run --frozen pytest -q
+        run: uv run --locked pytest -q
 
   # ---------- 2. 部署脚本预检：在云端验证 bootstrap/deploy 的密码同步逻辑 ----------
   deploy-scripts-verify:
@@ -150,8 +157,8 @@ jobs:
           file: ${{ matrix.file }}
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}:${{ github.sha }}
-            ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}:latest
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:latest
           # 前端需要把 API 基址固定为空字符串（相对路径 + 反向代理）
           build-args: |
             NEXT_PUBLIC_API_BASE=
@@ -165,7 +172,20 @@ jobs:
     needs: build-and-push
     environment: production
     steps:
+      - name: 检查服务器部署密钥是否已配置
+        # 未配置 Secrets 时不再让整个 workflow 变红：只告警并跳过部署。
+        # 5 个 Secrets 都配好之后，这一步会自动放行，无需再改 workflow。
+        id: guard
+        run: |
+          if [ -z "${{ secrets.SERVER_HOST }}" ]; then
+            echo "::warning title=已跳过部署::未配置 SERVER_HOST / SERVER_USER / SERVER_SSH_KEY 等 Secrets，本次只构建并推送镜像，未部署到服务器。"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: SSH 同步代码、拉取镜像并重启
+        if: steps.guard.outputs.ready == 'true'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
