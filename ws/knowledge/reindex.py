@@ -20,6 +20,8 @@ import logging
 import sys
 from dataclasses import dataclass
 
+import httpx
+
 from ws.knowledge import store
 from ws.knowledge.corpus import corpus_hash, load_corpus
 from ws.knowledge.embedding import get_embedding_backend
@@ -136,6 +138,25 @@ async def _main(force: bool, probe: bool) -> None:
             # 配置类错误（例如 key 还是文档里的占位符）直接给结论，
             # 不要甩一堆堆栈——这段输出会出现在 CI 的部署自检里
             print(f"embedding 配置有问题：{exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            print(f"embedding 接口返回 HTTP {status}：{exc.request.url}", file=sys.stderr)
+            if status == 401:
+                print("  鉴权失败 —— EMBEDDING_API_KEY 为空或无效。"
+                      "注意 GitHub 允许保存「空值」的 Secret：在 Secret 列表里能看到名字，"
+                      "但值是空的。请点铅笔图标重新粘贴真实 key 再保存。",
+                      file=sys.stderr)
+            elif status == 404:
+                print("  模型不存在 —— 检查 EMBEDDING_MODEL"
+                      "（华北2 地域建议 text-embedding-v4）", file=sys.stderr)
+            elif status == 429:
+                print("  触发限流 —— 稍后重试，或检查免费额度是否用完", file=sys.stderr)
+            raise SystemExit(1) from exc
+        except httpx.HTTPError as exc:
+            print(f"embedding 接口不可达：{exc}", file=sys.stderr)
+            print("  检查服务器出网：curl -sI https://dashscope.aliyuncs.com",
+                  file=sys.stderr)
             raise SystemExit(1) from exc
         return
 
