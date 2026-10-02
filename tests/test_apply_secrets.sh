@@ -43,6 +43,21 @@ grep -qxF 'EMBEDDING_API_KEY=sk-a$b&c|d' "$env_file" \
   || fail "密钥里的特殊字符被 shell 解释了"
 echo "   OK"
 
+echo "2b) 日志必须能分辨「中文占位符」和「真实 key」"
+# 这是最容易把人带偏的地方：bash 的 ${#value} 在非 UTF-8 locale 下数的是字节，
+# 15 字符的中文占位符会被数成 33，看着像一把真实 key。
+out="$(run EMBEDDING_API_KEY='sk-把这里换成你的真实key')"
+echo "$out" | grep -q 'EMBEDDING_API_KEY 已更新' || fail "占位符没有被识别为变更"
+echo "$out" | grep -q '非 ASCII' || fail "中文占位符必须被标注为非 ASCII，否则日志会误导人"
+if echo "$out" | grep -qE 'EMBEDDING_API_KEY 已更新（长度'; then
+  fail "不要在含非 ASCII 的值上打印长度（字节数会冒充字符数）"
+fi
+
+out="$(run EMBEDDING_API_KEY='sk-0123456789abcdef0123456789abcdef')"
+echo "$out" | grep -q '非 ASCII' && fail "纯 ASCII 的真实 key 不该被报成非 ASCII"
+echo "$out" | grep -q '长度 35' || fail "纯 ASCII 值应当打印长度，便于核对"
+echo "   OK"
+
 echo "3) 传 \"-\"：清除该项（用于回退到本地向量）"
 run EMBEDDING_MODEL=- >/dev/null
 if grep -q '^EMBEDDING_MODEL=' "$env_file"; then

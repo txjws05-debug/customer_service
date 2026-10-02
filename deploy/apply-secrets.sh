@@ -29,6 +29,21 @@ fi
 
 changed=0
 
+# 描述一个值「长什么样」，但绝不打印值本身。
+#
+# 刻意不用 `${#value}` 当长度：bash 在非 UTF-8 locale 下数的是**字节**，
+# 15 个字符的中文占位符会被数成 33 —— 线上真实踩过，反而把人带偏。
+# 判断「是否纯 ASCII」与 locale 无关，而且它正是最有用的信号：
+# 中文占位符必然是「含非 ASCII 字符」，真实 API Key 必然是纯 ASCII。
+describe_value() {
+  local value="$1"
+  if [[ "$value" == *[!\ -~]* ]]; then
+    echo "含非 ASCII 字符 —— 很可能填的是文档里的中文占位符"
+  else
+    echo "长度 ${#value}"
+  fi
+}
+
 apply() {
   local key="$1"
   local value="${!key:-}"
@@ -53,13 +68,13 @@ apply() {
 
   # 已经一致就不动文件，避免每次部署都白重建一次容器
   if grep -qxF "${key}=${value}" "$ENV_FILE"; then
-    echo "  [env] ${key} 无变化"
+    echo "  [env] ${key} 无变化（$(describe_value "$value")）"
     return 0
   fi
 
   sed -i "/^${key}=/d" "$ENV_FILE"
   printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
-  echo "  [env] ${key} 已更新"
+  echo "  [env] ${key} 已更新（$(describe_value "$value")）"
   changed=1
 }
 
