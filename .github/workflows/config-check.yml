@@ -1,10 +1,11 @@
 name: config-check
 
-# 只做一件事：检查配置类 Secret 对本次 run 是否可见、值是什么形态。
-# 手动触发，10 秒左右跑完 —— 不构建镜像、不连服务器，专门用来快速定位
+# 只做一件事：检查配置类 Secret 对本次 run 是否可见、形态是否正常。
+# 手动触发、约 10 秒跑完 —— 不构建镜像、不连服务器，专门用来快速定位
 # 「Secret 到底有没有送到 CI」这类问题（之前排查要跑整条流水线，太慢）。
 #
-# 日志里只会出现「未配置 / 含非 ASCII / 长度 N」，不会输出任何密钥值。
+# 日志里只会出现「未配置 / 含非 ASCII / 含空白 / 长度 N」，不会输出任何密钥值。
+# 形态有问题时本次检查会变红，并给出该怎么改。
 on:
   workflow_dispatch:
 
@@ -13,59 +14,30 @@ jobs:
     name: 检查配置类 Secret
     runs-on: ubuntu-latest
     steps:
-      - name: 可见性与形态
+      - uses: actions/checkout@v4
+
+      - name: 可见性
+        # Secret 的值在 job 启动那一刻就固定了：如果是启动之后才更新的，
+        # 这一次仍然用不到，需要重新触发。
         env:
-          BASE_URL: ${{ secrets.EMBEDDING_BASE_URL }}
-          MODEL: ${{ secrets.EMBEDDING_MODEL }}
-          API_KEY: ${{ secrets.EMBEDDING_API_KEY }}
+          HAS_BASE_URL: ${{ secrets.EMBEDDING_BASE_URL != '' }}
+          HAS_MODEL: ${{ secrets.EMBEDDING_MODEL != '' }}
+          HAS_API_KEY: ${{ secrets.EMBEDDING_API_KEY != '' }}
         run: |
-          describe() {
-            local name="$1" value="$2"
-            if [ -z "$value" ]; then
-              echo "  $name: 未配置或为空"
-            elif printf '%s' "$value" | LC_ALL=C grep -q '[^ -~]'; then
-              echo "  $name: 非空，但含非 ASCII 字符 —— 很可能填的是文档里的中文占位符"
-            else
-              # 只在纯 ASCII 时打印长度：此时字节数 === 字符数，不会有歧义
-              echo "  $name: 非空，纯 ASCII，长度 ${#value}"
-            fi
-          }
+          echo "EMBEDDING_BASE_URL 对本次 run 可见: ${HAS_BASE_URL}"
+          echo "EMBEDDING_MODEL    对本次 run 可见: ${HAS_MODEL}"
+          echo "EMBEDDING_API_KEY  对本次 run 可见: ${HAS_API_KEY}"
+          echo
 
-          echo "本次 run 读到的配置："
-          describe EMBEDDING_BASE_URL "$BASE_URL"
-          describe EMBEDDING_MODEL "$MODEL"
-          describe EMBEDDING_API_KEY "$API_KEY"
-
-          # 对 API Key 再做一次「体检」：长度异常和夹带空白是最常见的两种填错。
-          # 线上真实踩过：粘贴时把整行配置/命令一起带了进来，长度变成 118，
-          # 而只输出长度时看不出问题，于是又白跑了几轮流水线。
-          if [ -n "$API_KEY" ]; then
-            echo
-            echo "API Key 体检："
-            case "$API_KEY" in
-              sk-*) echo "  以 sk- 开头: 是" ;;
-              *)    echo "  以 sk- 开头: 否 —— 百炼 key 一般以 sk- 开头" ;;
-            esac
-
-            if printf '%s' "$API_KEY" | LC_ALL=C grep -q '[[:space:]]'; then
-              echo "  含空白字符: 是 —— 很可能把配置行或命令一起粘了进来"
-            else
-              echo "  含空白字符: 否"
-            fi
-
-            if [ "${#API_KEY}" -lt 20 ] || [ "${#API_KEY}" -gt 80 ]; then
-              echo "  ⚠️ 长度异常：${#API_KEY}（百炼 key 约 35 个字符）"
-              echo "     → 复制时很可能多选了内容或少选了字符，请回控制台重新完整复制"
-            else
-              echo "  长度落在合理区间（20~80）"
-            fi
-          fi
-
+      - name: 形态（与部署前的校验是同一份脚本）
+        env:
+          EMBEDDING_BASE_URL: ${{ secrets.EMBEDDING_BASE_URL }}
+          EMBEDDING_MODEL: ${{ secrets.EMBEDDING_MODEL }}
+          EMBEDDING_API_KEY: ${{ secrets.EMBEDDING_API_KEY }}
+        run: |
+          bash deploy/check-secrets.sh
           echo
           echo "对照标准："
           echo "  真实百炼 key  ≈ 35 个字符、纯 ASCII、以 sk- 开头、不含空白"
           echo "  中文占位符     = 15 个字符、含非 ASCII"
           echo "  未配置/为空    = 本次 run 拿不到这个 Secret"
-          echo
-          echo "注意：Secret 的值在 job 启动那一刻就固定了。"
-          echo "如果你刚刚才更新 Secret，需要重新触发一次本次检查。"

@@ -140,11 +140,11 @@ jobs:
           [ "$fail" -eq 0 ] || exit 1
           echo "所有 shell 脚本均为 LF"
 
-      - name: 校验 apply-secrets.sh 的配置下发语义
-        # 脚本负责把 GitHub Secrets 落到服务器 env 文件上，逻辑错会导致
-        # 「改了 Secret 但线上没生效」。断言本体在 tests/test_apply_secrets.sh，
-        # 本地和 CI 跑的是同一份，避免两边漂移。
-        run: bash tests/test_apply_secrets.sh
+      - name: 校验部署脚本语义（配置下发 / 配置校验）
+        # 断言本体在 tests/ 下，本地与 CI 跑同一份，避免两边漂移。
+        run: |
+          bash tests/test_apply_secrets.sh
+          bash tests/test_check_secrets.sh
 
   # ---------- 3. 前端：类型检查 + 生产构建 ----------
   frontend-verify:
@@ -249,6 +249,14 @@ jobs:
           if [ "${HAS_API_KEY}" != "true" ]; then
             echo "::warning title=embedding 配置读不到::本次 run 取不到 EMBEDDING_API_KEY —— 要么 Secret 没配好，要么它是在本次 run 启动之后才更新的（重新触发一次即可）。"
           fi
+
+      - name: 预先校验配置形态（填错就不必等构建和拉镜像）
+        # 放在 SSH 之前：配置明显填错时 10 秒内失败，并直接说清该怎么改。
+        env:
+          EMBEDDING_BASE_URL: ${{ secrets.EMBEDDING_BASE_URL }}
+          EMBEDDING_MODEL: ${{ secrets.EMBEDDING_MODEL }}
+          EMBEDDING_API_KEY: ${{ secrets.EMBEDDING_API_KEY }}
+        run: bash deploy/check-secrets.sh
 
       - name: SSH 同步代码、拉取镜像并重启
         if: steps.guard.outputs.ready == 'true'
