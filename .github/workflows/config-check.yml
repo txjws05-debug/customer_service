@@ -36,9 +36,34 @@ jobs:
           describe EMBEDDING_MODEL "$MODEL"
           describe EMBEDDING_API_KEY "$API_KEY"
 
+          # 对 API Key 再做一次「体检」：长度异常和夹带空白是最常见的两种填错。
+          # 线上真实踩过：粘贴时把整行配置/命令一起带了进来，长度变成 118，
+          # 而只输出长度时看不出问题，于是又白跑了几轮流水线。
+          if [ -n "$API_KEY" ]; then
+            echo
+            echo "API Key 体检："
+            case "$API_KEY" in
+              sk-*) echo "  以 sk- 开头: 是" ;;
+              *)    echo "  以 sk- 开头: 否 —— 百炼 key 一般以 sk- 开头" ;;
+            esac
+
+            if printf '%s' "$API_KEY" | LC_ALL=C grep -q '[[:space:]]'; then
+              echo "  含空白字符: 是 —— 很可能把配置行或命令一起粘了进来"
+            else
+              echo "  含空白字符: 否"
+            fi
+
+            if [ "${#API_KEY}" -lt 20 ] || [ "${#API_KEY}" -gt 80 ]; then
+              echo "  ⚠️ 长度异常：${#API_KEY}（百炼 key 约 35 个字符）"
+              echo "     → 复制时很可能多选了内容或少选了字符，请回控制台重新完整复制"
+            else
+              echo "  长度落在合理区间（20~80）"
+            fi
+          fi
+
           echo
           echo "对照标准："
-          echo "  真实百炼 key  ≈ 35 个字符、纯 ASCII"
+          echo "  真实百炼 key  ≈ 35 个字符、纯 ASCII、以 sk- 开头、不含空白"
           echo "  中文占位符     = 15 个字符、含非 ASCII"
           echo "  未配置/为空    = 本次 run 拿不到这个 Secret"
           echo
