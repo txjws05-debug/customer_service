@@ -203,6 +203,14 @@ _backend: EmbeddingBackend | None = None
 def build_embedding_backend() -> EmbeddingBackend:
     """按配置构造后端；没配 API 就退回本地词法向量。"""
     if settings.embedding_base_url and settings.embedding_model:
+        if not settings.embedding_api_key:
+            # 只删掉 key 而留着 base_url/model 是最容易踩的组合：
+            # 代码仍会选用 API 后端，然后拿着空 key 去请求，检索全部失败。
+            logger.warning(
+                "配置了 EMBEDDING_BASE_URL/MODEL 但 EMBEDDING_API_KEY 为空："
+                "如果该服务需要鉴权，调用会返回 401、知识检索将不可用。"
+                "想退回本地词法向量请把 BASE_URL/MODEL/API_KEY 三项一起清掉；"
+                "本地无鉴权服务（如自建 TEI/Ollama）可忽略此提示。")
         return OpenAICompatEmbedding(
             model=settings.embedding_model,
             base_url=settings.embedding_base_url,

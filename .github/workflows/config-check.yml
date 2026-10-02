@@ -1,0 +1,46 @@
+name: config-check
+
+# 只做一件事：检查配置类 Secret 对本次 run 是否可见、值是什么形态。
+# 手动触发，10 秒左右跑完 —— 不构建镜像、不连服务器，专门用来快速定位
+# 「Secret 到底有没有送到 CI」这类问题（之前排查要跑整条流水线，太慢）。
+#
+# 日志里只会出现「未配置 / 含非 ASCII / 长度 N」，不会输出任何密钥值。
+on:
+  workflow_dispatch:
+
+jobs:
+  check-secrets:
+    name: 检查配置类 Secret
+    runs-on: ubuntu-latest
+    steps:
+      - name: 可见性与形态
+        env:
+          BASE_URL: ${{ secrets.EMBEDDING_BASE_URL }}
+          MODEL: ${{ secrets.EMBEDDING_MODEL }}
+          API_KEY: ${{ secrets.EMBEDDING_API_KEY }}
+        run: |
+          describe() {
+            local name="$1" value="$2"
+            if [ -z "$value" ]; then
+              echo "  $name: 未配置或为空"
+            elif printf '%s' "$value" | LC_ALL=C grep -q '[^ -~]'; then
+              echo "  $name: 非空，但含非 ASCII 字符 —— 很可能填的是文档里的中文占位符"
+            else
+              # 只在纯 ASCII 时打印长度：此时字节数 === 字符数，不会有歧义
+              echo "  $name: 非空，纯 ASCII，长度 ${#value}"
+            fi
+          }
+
+          echo "本次 run 读到的配置："
+          describe EMBEDDING_BASE_URL "$BASE_URL"
+          describe EMBEDDING_MODEL "$MODEL"
+          describe EMBEDDING_API_KEY "$API_KEY"
+
+          echo
+          echo "对照标准："
+          echo "  真实百炼 key  ≈ 35 个字符、纯 ASCII"
+          echo "  中文占位符     = 15 个字符、含非 ASCII"
+          echo "  未配置/为空    = 本次 run 拿不到这个 Secret"
+          echo
+          echo "注意：Secret 的值在 job 启动那一刻就固定了。"
+          echo "如果你刚刚才更新 Secret，需要重新触发一次本次检查。"
