@@ -27,6 +27,28 @@ class Settings(BaseSettings):
     app_host: str
     app_port: int
 
+    # ---------- RAG 向量检索 ----------
+    # embedding 走 OpenAI 兼容的 /embeddings 接口（硅基流动、阿里云百炼、OpenAI 等都可用）。
+    # 三项都不配置时自动退化为「内置本地词法向量」：零依赖、离线可用，
+    # 但只按字面重合度检索，没有语义泛化能力。生产建议配一个真模型。
+    embedding_model: str | None = None
+    embedding_base_url: str | None = None
+    embedding_api_key: str | None = None
+    # 维度必须与 knowledge_chunks.embedding 的列维度一致；
+    # 换模型或改维度后，启动时会自动重建索引（见 ws/knowledge/reindex.py）
+    embedding_dim: int = 512
+
+    # 检索参数：向量召回候选数、最终返回条数、低于该分数视为「没检索到」
+    # min_score 是「垃圾地板」而不是「精度阈值」：意图识别已经先筛过一轮，
+    # 能走到检索的基本都是业务问题。本地词法向量下口语化改写分数明显偏低
+    # （实测「钱什么时候能退回来」≈0.08，而无关问题的地板在 0.05~0.12），
+    # 阈值定高会把正常问题挡掉。换成真正的 embedding 模型后可以往上调。
+    knowledge_candidates: int = 20
+    knowledge_top_k: int = 4
+    knowledge_min_score: float = 0.05
+    # 启动时自动建表并建索引（幂等；失败只告警，不影响服务启动）
+    knowledge_auto_index: bool = True
+
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra='ignore')
 
 

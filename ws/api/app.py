@@ -7,7 +7,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ws.api.auth_router import auth_router
 from ws.api.chat_router import chat_router
+from ws.config.config import settings
 from ws.engine.builder import build_dailogue_engine
+from ws.knowledge.reindex import ensure_index
 from ws.utils import database
 from ws.utils.errors import ChatServiceError
 from ws.utils.http import close_http_client, init_http_client
@@ -22,6 +24,15 @@ async def lifespan(app: FastAPI):
     setup_logging()
     database.init_db_engine()
     await database.create_tables()
+    # 知识库建表 + 建向量索引（语料/模型变了会自动重建）。
+    # 失败只告警：检索不可用不该拖垮整个客服服务。
+    if settings.knowledge_auto_index:
+        try:
+            result = await ensure_index()
+            logger.info("知识库就绪：%d 条，embedding=%s（%s）",
+                        result.chunks, result.embedding_backend, result.reason)
+        except Exception:  # noqa: BLE001
+            logger.exception("知识库索引建立失败，FAQ/RAG 检索将不可用")
     init_http_client()
     # 对话引擎只构建一次，所有请求共享
     app.state.dialogue_engine = build_dailogue_engine()
