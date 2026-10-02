@@ -184,6 +184,39 @@ def test_api_backend_detects_dimension_on_first_call(monkeypatch):
     assert request["headers"]["Authorization"] == "Bearer sk-x"
 
 
+def test_api_backend_rejects_non_ascii_key():
+    """线上真实踩过：把中文占位符填进 key，httpx 会抛看不懂的编码错误。
+
+    这里断言我们提前挡住，并给出能直接照做的提示。
+    """
+    placeholder = "sk-把这里换成你的真实key"
+    with pytest.raises(ValueError) as excinfo:
+        OpenAICompatEmbedding(
+            model="text-embedding-v3",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            api_key=placeholder, dim=0)
+
+    message = str(excinfo.value)
+    assert "EMBEDDING_API_KEY" in message
+    assert "非 ASCII" in message
+    assert str(len(placeholder)) in message, "报错里要给出当前值长度，方便定位"
+
+
+def test_api_backend_rejects_non_ascii_base_url():
+    with pytest.raises(ValueError) as excinfo:
+        OpenAICompatEmbedding(model="text-embedding-v3",
+                              base_url="https://例子.com/v1", api_key="sk-x")
+    assert "EMBEDDING_BASE_URL" in str(excinfo.value)
+
+
+def test_api_backend_accepts_normal_ascii_config():
+    backend = OpenAICompatEmbedding(
+        model="text-embedding-v3",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        api_key="sk-1234567890abcdef", dim=0)
+    assert backend.dim == 0
+
+
 def test_api_backend_rejects_dimension_mismatch(monkeypatch):
     _use_fake_http(monkeypatch, dim=8)
     backend = OpenAICompatEmbedding(

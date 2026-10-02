@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import sys
 from dataclasses import dataclass
 
 from ws.knowledge import store
@@ -129,7 +130,13 @@ async def _main(force: bool, probe: bool) -> None:
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     )
     if probe:
-        await probe_backend()
+        try:
+            await probe_backend()
+        except ValueError as exc:
+            # 配置类错误（例如 key 还是文档里的占位符）直接给结论，
+            # 不要甩一堆堆栈——这段输出会出现在 CI 的部署自检里
+            print(f"embedding 配置有问题：{exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
         return
 
     database.init_db_engine()

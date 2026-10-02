@@ -117,6 +117,26 @@ class HashingEmbedding(EmbeddingBackend):
         return [self.embed_text(text) for text in texts]
 
 
+def _reject_non_ascii(name: str, value: str) -> None:
+    """HTTP 请求头和 URL 只能是 ASCII。
+
+    否则 httpx 会抛一个完全看不出原因的 `UnicodeEncodeError: 'ascii' codec
+    can't encode characters in position N`——线上真实踩过：把文档里的中文
+    占位符原样填进了 EMBEDDING_API_KEY。这里提前给出能直接照做的报错。
+    """
+    if not value or value.isascii():
+        return
+
+    position = next(i for i, char in enumerate(value) if not char.isascii())
+    raise ValueError(
+        f"{name} 里出现了非 ASCII 字符（第 {position} 位起）。"
+        f"HTTP 请求头和 URL 只能是 ASCII，最常见的原因是把配置文档里的"
+        f"占位符原样填了进去。请改成真实值：百炼的 EMBEDDING_BASE_URL 是 "
+        f"https://dashscope.aliyuncs.com/compatible-mode/v1，"
+        f"EMBEDDING_API_KEY 形如 sk- 开头、后面全是字母数字。"
+        f"当前值的长度是 {len(value)}。")
+
+
 class OpenAICompatEmbedding(EmbeddingBackend):
     """调用 OpenAI 兼容的 /embeddings 接口。
 
@@ -133,6 +153,11 @@ class OpenAICompatEmbedding(EmbeddingBackend):
         self.api_key = api_key or ""
         self.dim = dim
         self.name = f"{model}@{self.base_url}"
+
+        # 配置错误要在构造时就暴露，别等到发请求才炸一个看不懂的编码错误
+        _reject_non_ascii("EMBEDDING_BASE_URL", self.base_url)
+        _reject_non_ascii("EMBEDDING_MODEL", self.model)
+        _reject_non_ascii("EMBEDDING_API_KEY", self.api_key)
 
     async def _request(self, texts: list[str]) -> list[list[float]]:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}

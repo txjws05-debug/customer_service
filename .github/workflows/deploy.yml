@@ -273,6 +273,12 @@ jobs:
               docker compose -f docker-compose.prod.yml --env-file deploy/.env \
                 up -d --force-recreate backend
             fi
+
+            # 部署后自检：确认服务真的能用当前配置的 embedding 后端。
+            # 配置写错（例如 key 还是文档里的占位符）会让这一步失败，
+            # 于是直接在 Actions 日志里就能看到原因，不必登服务器翻容器日志。
+            echo "==> 部署后自检：embedding 后端"
+            docker exec cs-backend python -m ws.knowledge.reindex --probe
         env:
           IMAGE_TAG: ${{ github.sha }}
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
