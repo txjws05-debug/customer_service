@@ -234,6 +234,22 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: 检查配置类 Secret 是否对本次 run 可见
+        # Secret 的值在 job 启动那一刻就固定了：如果是在 run 启动之后才更新的
+        # Secret，这一次仍然用不到。把「可见性」直接打在日志里，省得靠推理。
+        # 注意这里只输出 true/false，不输出任何值。
+        env:
+          HAS_BASE_URL: ${{ secrets.EMBEDDING_BASE_URL != '' }}
+          HAS_MODEL: ${{ secrets.EMBEDDING_MODEL != '' }}
+          HAS_API_KEY: ${{ secrets.EMBEDDING_API_KEY != '' }}
+        run: |
+          echo "EMBEDDING_BASE_URL 对本次 run 可见: ${HAS_BASE_URL}"
+          echo "EMBEDDING_MODEL    对本次 run 可见: ${HAS_MODEL}"
+          echo "EMBEDDING_API_KEY  对本次 run 可见: ${HAS_API_KEY}"
+          if [ "${HAS_API_KEY}" != "true" ]; then
+            echo "::warning title=embedding 配置读不到::本次 run 取不到 EMBEDDING_API_KEY —— 要么 Secret 没配好，要么它是在本次 run 启动之后才更新的（重新触发一次即可）。"
+          fi
+
       - name: SSH 同步代码、拉取镜像并重启
         if: steps.guard.outputs.ready == 'true'
         uses: appleboy/ssh-action@v1
