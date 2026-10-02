@@ -230,7 +230,10 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
-          script_stop: true
+          # 首次从 GHCR 全量拉镜像约 1~1.5G，国内带宽下可能超过 10 分钟；
+          # 而本 action 的 command_timeout 默认只有 10m，会中途把命令掐断、
+          # 让本来正常的部署报超时失败，所以这里显式放宽。
+          command_timeout: 30m
           envs: IMAGE_TAG,APP_DIR
           script: |
             set -e
