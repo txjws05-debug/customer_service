@@ -124,15 +124,27 @@ jobs:
             || { echo "bootstrap 非幂等：密码被重新生成"; exit 1; }
           echo "bootstrap 密码同步与幂等性 OK"
 
-      - name: 校验 shell 脚本行尾（必须 LF，否则容器内执行失败）
+      - name: 校验 shell 脚本语法与行尾
         run: |
           set -e
+          # 语法：deploy 时会直接在服务器上执行，写错一个符号就整条流水线部署失败
+          for f in $(git ls-files '*.sh'); do
+            bash -n "$f" || { echo "::error file=$f::shell 语法错误"; exit 1; }
+          done
+          echo "所有 shell 脚本语法 OK"
+          # 行尾必须是 LF，否则容器内执行失败
           fail=0
           for f in $(git ls-files '*.sh'); do
             if grep -q $'\r' "$f"; then echo "::error file=$f::含 CRLF 行尾"; fail=1; fi
           done
           [ "$fail" -eq 0 ] || exit 1
           echo "所有 shell 脚本均为 LF"
+
+      - name: 校验 apply-secrets.sh 的配置下发语义
+        # 脚本负责把 GitHub Secrets 落到服务器 env 文件上，逻辑错会导致
+        # 「改了 Secret 但线上没生效」。断言本体在 tests/test_apply_secrets.sh，
+        # 本地和 CI 跑的是同一份，避免两边漂移。
+        run: bash tests/test_apply_secrets.sh
 
   # ---------- 3. 前端：类型检查 + 生产构建 ----------
   frontend-verify:
@@ -234,7 +246,10 @@ jobs:
           # 而本 action 的 command_timeout 默认只有 10m，会中途把命令掐断、
           # 让本来正常的部署报超时失败，所以这里显式放宽。
           command_timeout: 30m
-          envs: IMAGE_TAG,APP_DIR
+          # 后面这几个是「配置下发」用的：值来自 GitHub Secrets，
+          # 由 deploy/apply-secrets.sh 写进服务器上的 deploy/backend.env。
+          # 没配的 Secret 传进来是空串，脚本会跳过，不会动服务器上的已有值。
+          envs: IMAGE_TAG,APP_DIR,EMBEDDING_BASE_URL,EMBEDDING_MODEL,EMBEDDING_API_KEY,EMBEDDING_DIM
           script: |
             set -e
             cd "$APP_DIR"
@@ -243,7 +258,26 @@ jobs:
             git fetch --prune origin
             git reset --hard "origin/main" || git reset --hard "$IMAGE_TAG"
 
+            # 把 GitHub Secrets 里的配置落到服务器 env 文件上。
+            # 这样「改密钥 / 换 embedding 模型」也只改 Secret 重跑流水线即可，
+            # 不需要登录服务器手改文件。
+            bash deploy/apply-secrets.sh
+
             IMAGE_TAG="$IMAGE_TAG" bash deploy/deploy.sh
+
+            # 只改了配置、镜像 tag 没变时，compose 未必会重建容器；
+            # apply-secrets.sh 检测到变化会留下标记，这里补一次（只重建 backend）。
+            if [ -f /tmp/cs-env-changed ]; then
+              rm -f /tmp/cs-env-changed
+              echo "==> 配置有变化，重建 backend 容器"
+              docker compose -f docker-compose.prod.yml --env-file deploy/.env \
+                up -d --force-recreate backend
+            fi
         env:
           IMAGE_TAG: ${{ github.sha }}
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+          # 可选：配了就自动下发到服务器；没配则服务器保持原样
+          EMBEDDING_BASE_URL: ${{ secrets.EMBEDDING_BASE_URL }}
+          EMBEDDING_MODEL: ${{ secrets.EMBEDDING_MODEL }}
+          EMBEDDING_API_KEY: ${{ secrets.EMBEDDING_API_KEY }}
+          EMBEDDING_DIM: ${{ secrets.EMBEDDING_DIM }}
