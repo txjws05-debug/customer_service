@@ -25,10 +25,12 @@ env_file="$tmp/deploy/backend.env"
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
-echo "1) 没传值：一个字都不该动（包括无关变量）"
-run DUMMY=1 >/dev/null
+echo "1) 没传值：一个字都不该动（包括无关变量），且必须打印出「未传入」"
+out="$(run DUMMY=1)"
 grep -qx 'EMBEDDING_MODEL=old-model' "$env_file" || fail "未传值时配置被改动了"
 grep -qx 'LLM_API_KEY=keepme' "$env_file" || fail "动了无关变量"
+# 日志必须说明白「没传」，否则排查时分不清「Secret 没配好」和「值没变」
+echo "$out" | grep -q 'EMBEDDING_MODEL 未传入' || fail "未传值时日志没说明白"
 echo "   OK"
 
 echo "2) 传值：覆盖、不产生重复行、特殊字符原样落盘"
