@@ -6,12 +6,16 @@
 """
 
 import asyncio
+import json
 import math
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
 from ws.domain.message import MessageType, UserMessage
 from ws.domain.state import DialogueState, SharedState, Turn
+from ws.knowledge import embedding as embedding_module
 from ws.knowledge import provider as provider_module
 from ws.knowledge import store
 from ws.knowledge.corpus import KnowledgeDoc, corpus_hash, load_corpus
@@ -94,6 +98,185 @@ def test_embedding_backend_factory_falls_back_to_local(monkeypatch):
     assert isinstance(backend, HashingEmbedding)
     assert backend.dim == 256
     assert backend.name == "local-hashing-256"
+
+
+def test_local_backend_defaults_to_512_when_dim_unset(monkeypatch):
+    monkeypatch.setattr(provider_module.settings, "embedding_base_url", None)
+    monkeypatch.setattr(provider_module.settings, "embedding_model", None)
+    monkeypatch.setattr(provider_module.settings, "embedding_dim", None)
+
+    assert build_embedding_backend().dim == 512
+
+
+def test_blank_embedding_dim_is_treated_as_auto(monkeypatch):
+    """`EMBEDDING_DIM=` 这种留空写法必须当成自动探测，而不是解析失败。"""
+    from ws.config.config import Settings
+
+    monkeypatch.setenv("EMBEDDING_DIM", "")
+    assert Settings().embedding_dim is None
+
+
+# ------------------------------------------------- API embedding 后端
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+class _FakeAsyncClient:
+    """替掉 httpx.AsyncClient：记录请求，并按 dim 返回假向量。"""
+
+    dim = 8
+    calls: list = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, json=None, headers=None):
+        type(self).calls.append({"url": url, "json": json, "headers": headers})
+        return _FakeResponse({
+            "data": [
+                {"embedding": [0.1] * self.dim, "index": index, "object": "embedding"}
+                for index, _ in enumerate(json["input"])
+            ],
+            "model": json["model"],
+            "object": "list",
+        })
+
+
+def _use_fake_http(monkeypatch, dim: int) -> None:
+    _FakeAsyncClient.dim = dim
+    _FakeAsyncClient.calls = []
+    monkeypatch.setattr(embedding_module.httpx, "AsyncClient", _FakeAsyncClient)
+
+
+def test_api_backend_detects_dimension_on_first_call(monkeypatch):
+    _use_fake_http(monkeypatch, dim=8)
+    backend = OpenAICompatEmbedding(
+        model="text-embedding-v3",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        api_key="sk-x", dim=0)
+
+    assert backend.dim == 0, "没配 EMBEDDING_DIM 时应处于待探测状态"
+    assert asyncio.run(backend.ensure_dim()) == 8
+    assert backend.dim == 8, "探测结果要落到实例上，避免每次调用都多问一次"
+
+    vectors = asyncio.run(backend.embed(["退款多久到账"]))
+    assert len(vectors[0]) == 8
+    assert math.isclose(sum(v * v for v in vectors[0]), 1.0, rel_tol=1e-9)
+
+    request = _FakeAsyncClient.calls[0]
+    assert request["url"].endswith("/compatible-mode/v1/embeddings")
+    assert request["json"]["model"] == "text-embedding-v3"
+    assert isinstance(request["json"]["input"], list)
+    assert request["headers"]["Authorization"] == "Bearer sk-x"
+
+
+def test_api_backend_rejects_dimension_mismatch(monkeypatch):
+    _use_fake_http(monkeypatch, dim=8)
+    backend = OpenAICompatEmbedding(
+        model="m", base_url="https://example.com/v1", api_key="k", dim=4)
+
+    with pytest.raises(ValueError) as excinfo:
+        asyncio.run(backend.embed(["文本"]))
+
+    message = str(excinfo.value)
+    assert "EMBEDDING_DIM" in message, "报错要告诉用户改哪个配置"
+    assert "8" in message
+
+
+def test_reindex_batch_size_within_provider_limits():
+    """阿里云百炼 text-embedding-v3 / v4 单次最多 10 条，超过会直接报错。"""
+    from ws.knowledge import reindex
+
+    assert reindex._BATCH_SIZE <= 10
+
+
+class _FakeEmbeddingHandler(BaseHTTPRequestHandler):
+    """最小可用的 OpenAI 兼容 /embeddings 服务，用于真实 HTTP 往返测试。"""
+
+    dim = 8
+    seen: list = []
+
+    def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler 的约定命名
+        length = int(self.headers.get("Content-Length", 0))
+        body = json.loads(self.rfile.read(length) or b"{}")
+        type(self).seen.append({
+            "path": self.path,
+            "body": body,
+            "auth": self.headers.get("Authorization"),
+        })
+
+        inputs = body.get("input") or []
+        if isinstance(inputs, str):
+            inputs = [inputs]
+
+        payload = json.dumps({
+            "data": [
+                {"embedding": [0.1] * type(self).dim, "index": index,
+                 "object": "embedding"}
+                for index, _ in enumerate(inputs)
+            ],
+            "model": body.get("model"),
+            "object": "list",
+        }).encode("utf-8")
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *args):  # 静音，避免污染测试输出
+        return
+
+
+def test_api_backend_real_http_round_trip():
+    """用真实 HTTP 服务（不是 mock）验证一次完整往返。
+
+    覆盖 mock 测不到的东西：httpx 实际发出去的请求长什么样、JSON 怎么编码、
+    响应怎么解析——这几处一旦和接口约定不一致，只有真发一次才看得出来。
+    """
+    _FakeEmbeddingHandler.dim = 16
+    _FakeEmbeddingHandler.seen = []
+    server = HTTPServer(("127.0.0.1", 0), _FakeEmbeddingHandler)  # 端口 0 = 随便给个空闲端口
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        backend = OpenAICompatEmbedding(
+            model="text-embedding-v3",
+            base_url=f"http://127.0.0.1:{server.server_port}/v1",
+            api_key="sk-test", dim=0)
+
+        assert asyncio.run(backend.ensure_dim()) == 16
+
+        vectors = asyncio.run(backend.embed(["退款多久到账", "怎么开发票"]))
+        assert [len(vector) for vector in vectors] == [16, 16]
+
+        # seen[0] 是 ensure_dim 的探测请求，seen[-1] 才是刚才那次批量请求
+        probe = _FakeEmbeddingHandler.seen[0]
+        request = _FakeEmbeddingHandler.seen[-1]
+        assert probe["body"]["input"] == ["维度探测"]
+        assert request["path"] == "/v1/embeddings"
+        assert request["body"]["model"] == "text-embedding-v3"
+        assert request["body"]["encoding_format"] == "float"
+        assert request["body"]["input"] == ["退款多久到账", "怎么开发票"]
+        assert request["auth"] == "Bearer sk-test"
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 # ---------------------------------------------------------------- 语料

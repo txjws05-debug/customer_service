@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE = Path(__file__).parents[2] / '.env'
@@ -34,9 +35,10 @@ class Settings(BaseSettings):
     embedding_model: str | None = None
     embedding_base_url: str | None = None
     embedding_api_key: str | None = None
-    # 维度必须与 knowledge_chunks.embedding 的列维度一致；
-    # 换模型或改维度后，启动时会自动重建索引（见 ws/knowledge/reindex.py）
-    embedding_dim: int = 512
+    # 向量维度。留空 = 自动探测（API 后端第一次调用时问模型要），
+    # 本地后端留空则用 512。只有想强制校验时才需要填：
+    # 填了却和模型实际输出不一致，启动时会明确报错。
+    embedding_dim: int | None = None
 
     # 检索参数：向量召回候选数、最终返回条数、低于该分数视为「没检索到」
     # min_score 是「垃圾地板」而不是「精度阈值」：意图识别已经先筛过一轮，
@@ -48,6 +50,14 @@ class Settings(BaseSettings):
     knowledge_min_score: float = 0.05
     # 启动时自动建表并建索引（幂等；失败只告警，不影响服务启动）
     knowledge_auto_index: bool = True
+
+    @field_validator("embedding_dim", mode="before")
+    @classmethod
+    def _blank_dim_means_auto(cls, value):
+        """`EMBEDDING_DIM=` 这种留空写法要当成「自动探测」，而不是解析失败。"""
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return value
 
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra='ignore')
 

@@ -81,7 +81,16 @@ class EmbeddingBackend(ABC):
     """embedding 后端接口。"""
 
     name: str = ""
+    #: 向量维度。0 表示「还没确定」——API 后端在第一次调用时自动探测。
     dim: int = 0
+
+    async def ensure_dim(self) -> int:
+        """返回确定后的维度。
+
+        本地后端构造时维度就已知；API 后端需要先探一次才知道模型输出多少维
+        （百炼 text-embedding-v4 有 8 种可选维度），所以建表前必须调它。
+        """
+        return self.dim
 
     @abstractmethod
     async def embed(self, texts: list[str]) -> list[list[float]]:
@@ -109,19 +118,25 @@ class HashingEmbedding(EmbeddingBackend):
 
 
 class OpenAICompatEmbedding(EmbeddingBackend):
-    """调用 OpenAI 兼容的 /embeddings 接口（硅基流动 / 百炼 / OpenAI ...）。"""
+    """调用 OpenAI 兼容的 /embeddings 接口。
+
+    已按阿里云百炼（text-embedding-v3/v4）、硅基流动、OpenAI 的公共约定实现：
+      POST {base_url}/embeddings
+      {"model": "...", "input": ["文本1", "文本2"]}
+      -> {"data": [{"embedding": [...], "index": 0}, ...]}
+    """
 
     def __init__(self, model: str, base_url: str, api_key: str | None,
-                 dim: int) -> None:
+                 dim: int = 0) -> None:
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or ""
         self.dim = dim
         self.name = f"{model}@{self.base_url}"
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def _request(self, texts: list[str]) -> list[list[float]]:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-        payload = {"model": self.model, "input": texts}
+        payload = {"model": self.model, "input": texts, "encoding_format": "float"}
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -129,15 +144,31 @@ class OpenAICompatEmbedding(EmbeddingBackend):
             response.raise_for_status()
             body = response.json()
 
-        vectors = [item["embedding"] for item in body["data"]]
+        return [item["embedding"] for item in body["data"]]
+
+    async def ensure_dim(self) -> int:
+        if self.dim <= 0:
+            vectors = await self._request(["维度探测"])
+            self.dim = len(vectors[0])
+            logger.info("探测到 embedding 模型 %s 的输出维度 = %d",
+                        self.model, self.dim)
+        return self.dim
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        vectors = await self._request(texts)
+        if not vectors:
+            return []
+
         for vector in vectors:
             # 维度对不上就写不进 vector(N) 列，这里提前给出可操作的报错
-            if len(vector) != self.dim:
+            if self.dim and len(vector) != self.dim:
                 raise ValueError(
                     f"embedding 维度不一致：模型 {self.model} 返回 {len(vector)} 维，"
                     f"而 EMBEDDING_DIM 配的是 {self.dim} 维。"
-                    f"请把 EMBEDDING_DIM 改成 {len(vector)} 后重启"
-                    f"（启动时会自动重建索引）。")
+                    f"把 EMBEDDING_DIM 改成 {len(vector)}（或留空让它自动探测）后重启，"
+                    f"启动时会自动重建索引。")
+
+        self.dim = self.dim or len(vectors[0])
         return [l2_normalize(vector) for vector in vectors]
 
 
@@ -151,9 +182,11 @@ def build_embedding_backend() -> EmbeddingBackend:
             model=settings.embedding_model,
             base_url=settings.embedding_base_url,
             api_key=settings.embedding_api_key,
-            dim=settings.embedding_dim,
+            # 0 = 首次调用时自动探测（不填 EMBEDDING_DIM 就走这条路）
+            dim=settings.embedding_dim or 0,
         )
-    return HashingEmbedding(dim=settings.embedding_dim)
+    # 本地后端必须有确定维度，默认 512
+    return HashingEmbedding(dim=settings.embedding_dim or 512)
 
 
 def get_embedding_backend() -> EmbeddingBackend:
@@ -161,7 +194,8 @@ def get_embedding_backend() -> EmbeddingBackend:
     global _backend
     if _backend is None:
         _backend = build_embedding_backend()
-        logger.info("embedding 后端=%s dim=%d", _backend.name, _backend.dim)
+        logger.info("embedding 后端=%s dim=%s", _backend.name,
+                    _backend.dim or "待探测")
     return _backend
 
 

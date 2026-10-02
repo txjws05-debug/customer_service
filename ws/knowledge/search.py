@@ -25,12 +25,13 @@ async def run(query: str, kinds: list[str], top_k: int) -> None:
     database.init_db_engine()
     try:
         backend = get_embedding_backend()
+        dim = await backend.ensure_dim()
         query_vector = (await backend.embed([query]))[0]
         hits = await store.search(
             query_vector=query_vector, query_text=query, kinds=kinds, top_k=top_k)
 
         print(f"查询：{query}")
-        print(f"embedding：{backend.name}（dim={backend.dim}）")
+        print(f"embedding：{backend.name}（dim={dim}）")
         print(f"范围：{', '.join(kinds)}    知识条数：{await store.count_chunks()}")
         print("-" * 72)
         if not hits:
