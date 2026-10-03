@@ -26,6 +26,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ---------- 0. 判断这次改了什么：决定重建哪些镜像 ----------
+  # 一次 push 只改前端时，没必要连后端和中台镜像一起构建 —— 那要多花几分钟
+  # 构建、还要多拉几百 MB。判定逻辑放在 deploy/detect-changes.sh 里（可单测）。
+  changes:
+    name: detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      images_csv: ${{ steps.diff.outputs.images_csv }}
+      deploy_needed: ${{ steps.diff.outputs.deploy_needed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 要能 diff 到上一次推送的那个提交，浅克隆做不到
+          fetch-depth: 0
+
+      - id: diff
+        name: 对比本次推送涉及的文件
+        run: |
+          set -euo pipefail
+
+          before="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" != "push" ] \
+             || [ -z "$before" ] \
+             || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            # 手动触发 / 新分支首次推送：没有可比对的基线，按「全都可能改过」处理
+            echo "没有可比对的基线，按全量处理"
+            files="$(git ls-files)"
+          else
+            files="$(git diff --name-only "$before" "${{ github.sha }}")"
+          fi
+
+          echo "本次涉及 $(printf '%s\n' "$files" | grep -c . || true) 个文件，前 20 个："
+          printf '%s\n' "$files" | grep . | head -20 | sed 's/^/  /'
+
+          detected="$(printf '%s\n' "$files" | bash deploy/detect-changes.sh)"
+          echo "$detected"
+          printf '%s\n' "$detected" >> "$GITHUB_OUTPUT"
+
   # ---------- 1. 后端：跑单测，同时验证 pyproject/uv.lock 一致 ----------
   backend-verify:
     name: verify backend
@@ -192,11 +230,12 @@ jobs:
           [ "$fail" -eq 0 ] || exit 1
           echo "所有 shell 脚本均为 LF"
 
-      - name: 校验部署脚本语义（配置下发 / 配置校验）
+      - name: 校验部署脚本语义（配置下发 / 配置校验 / 改动检测）
         # 断言本体在 tests/ 下，本地与 CI 跑同一份，避免两边漂移。
         run: |
           bash tests/test_apply_secrets.sh
           bash tests/test_check_secrets.sh
+          bash tests/test_detect_changes.sh
 
   # ---------- 3. 前端：类型检查 + 生产构建 ----------
   frontend-verify:
@@ -219,11 +258,11 @@ jobs:
         env:
           NEXT_PUBLIC_API_BASE: ""
 
-  # ---------- 4. 构建并推送三个镜像 ----------
+  # ---------- 4. 构建并推送三个镜像（只重建改动过的） ----------
   build-and-push:
     name: build ${{ matrix.name }}
     runs-on: ubuntu-latest
-    needs: [backend-verify, deploy-scripts-verify, frontend-verify]
+    needs: [changes, backend-verify, deploy-scripts-verify, frontend-verify]
     strategy:
       fail-fast: false
       matrix:
@@ -252,7 +291,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 构建并推送
+      - name: 复用上次构建的镜像（本组件未改动）
+        # 只写 manifest、不传层数据：秒级完成，而且服务器拉这个 tag 时
+        # 每一层都命中本地缓存，等于「零下载」。
+        # 这样 IMAGE_TAG 仍然是本次 commit，回滚/排查的语义不变。
+        if: ${{ !contains(needs.changes.outputs.images_csv, format(',{0},', matrix.name)) }}
+        run: |
+          set -e
+          SRC="${IMAGE_PREFIX}/${{ matrix.image }}:latest"
+          TGT="${IMAGE_PREFIX}/${{ matrix.image }}:${{ github.sha }}"
+          echo "本次未改动 ${{ matrix.name }}，复用 $SRC → $TGT"
+          docker buildx imagetools create -t "$TGT" "$SRC"
+
+      - name: 构建并推送（本组件有改动）
+        if: ${{ contains(needs.changes.outputs.images_csv, format(',{0},', matrix.name)) }}
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -271,7 +323,10 @@ jobs:
   deploy:
     name: deploy to server
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: [changes, build-and-push]
+    # 只改了文档之类的东西时不必部署（未改动的镜像走的是复用，所以
+    # build-and-push 一定会跑完，不会因为被跳过而连累这一步）
+    if: needs.changes.outputs.deploy_needed == 'true'
     environment: production
     steps:
       # deploy job 只在服务器上通过 SSH 操作，本来不需要本地代码；

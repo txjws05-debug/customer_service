@@ -95,3 +95,47 @@ def test_deploy_job_passes_embedding_config_to_ssh_step():
     for key in ("EMBEDDING_BASE_URL", "EMBEDDING_MODEL", "EMBEDDING_API_KEY"):
         assert key in env_keys, f"{key} 不在 SSH 步骤的 env 里"
         assert key in envs, f"{key} 不在 SSH 步骤的 envs 里（不会被转发到服务器）"
+
+
+def test_only_changed_images_are_built():
+    """未改动的组件必须走「复用 manifest」而不是重新构建。
+
+    否则一次只改前端的 push 也会重建后端和中台镜像：多花几分钟构建，
+    服务器还要多拉几百 MB。判定逻辑在 deploy/detect-changes.sh 里。
+    """
+    doc = _workflows()["deploy.yml"]
+
+    changes = doc["jobs"].get("changes")
+    assert changes, "缺少 changes 作业：无法判断该重建哪些镜像"
+    assert "images_csv" in str(changes.get("outputs")), "changes 必须输出 images_csv"
+
+    checkout = next(
+        step for step in changes["steps"]
+        if str(step.get("uses", "")).startswith("actions/checkout")
+    )
+    # 浅克隆 diff 不到上一次推送的提交，判定会直接失效
+    assert checkout["with"].get("fetch-depth") == 0, "changes 作业必须 fetch-depth: 0"
+
+    build = doc["jobs"]["build-and-push"]
+    assert "changes" in build["needs"], "build-and-push 必须依赖 changes 作业"
+
+    steps = build["steps"]
+    reuse = [s for s in steps if "imagetools" in str(s.get("run", ""))]
+    assert reuse, "缺少「复用上次镜像」的步骤"
+    assert "images_csv" in str(reuse[0].get("if", "")), "复用步骤必须按 images_csv 判断"
+
+    build_step = next(
+        step for step in steps
+        if str(step.get("uses", "")).startswith("docker/build-push-action")
+    )
+    assert "images_csv" in str(build_step.get("if", "")), "构建步骤必须按 images_csv 判断"
+    # 两个条件必须互补，否则会出现「既没构建也没复用」的空洞
+    assert "!" in str(reuse[0]["if"]), "复用条件应为「不在 images_csv 里」"
+    assert "!" not in str(build_step["if"]), "构建条件应为「在 images_csv 里」"
+
+
+def test_deploy_is_skipped_for_docs_only_changes():
+    """只改文档时不该部署（镜像走复用，构建作业仍会跑完）。"""
+    deploy = _workflows()["deploy.yml"]["jobs"]["deploy"]
+    assert "changes" in deploy["needs"], "deploy 必须依赖 changes 才能读到 deploy_needed"
+    assert "deploy_needed" in str(deploy.get("if", "")), "deploy 必须按 deploy_needed 判断"

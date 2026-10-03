@@ -111,31 +111,41 @@ fi
 docker image prune -f --filter "until=72h" >/dev/null 2>&1 || true
 
 # ---------- 反代自检：/shop/* 必须真的被 Caddy 转给中台 ----------
-# 这一条不通，商城/购物车/订单/运营后台整片不可用；而且现象通常是前端报 500，
-# 从错误里看不出是路由问题。所以部署时就用容器内的 wget 打一次真实响应。
-SITE="$(sed -n 's/^SITE_ADDRESS=//p' "$ENV_FILE" | head -1)"
-HOST_HEADER="${SITE%%:*}"
-[[ -z "$HOST_HEADER" ]] && HOST_HEADER=127.0.0.1
+# 两个踩过的坑：
+#   1) set -e 下 `var="$(命令失败)"` 会当场结束脚本 —— 上次就是这样：探测挂掉后
+#      日志里既没有「通过」也没有「失败」，只留一个 exit 1，完全看不出原因；
+#   2) 中台容器启动时要先建表/迁移/补种才监听端口，探测必须留足重试时间。
+# 这里从宿主机走 Caddy（和浏览器同一条路径），失败时把响应体也打出来。
+if ! command -v curl >/dev/null 2>&1; then
+  echo "!! 服务器上没有 curl，跳过 /shop 反代自检" >&2
+else
+  SITE="$(sed -n 's/^SITE_ADDRESS=//p' "$ENV_FILE" | head -1)"
+  HOST_HEADER="${SITE%%:*}"
+  [[ -z "$HOST_HEADER" ]] && HOST_HEADER=127.0.0.1
 
-shop_code=""
-for attempt in 1 2 3; do
-  shop_code="$(docker exec cs-caddy wget -qS -O /dev/null \
-    --header "Host: ${HOST_HEADER}" http://127.0.0.1/shop/categories 2>&1 \
-    | sed -n 's/.*HTTP\/1\.[01] \([0-9]\{3\}\).*/\1/p' | head -1)"
-  [[ "$shop_code" == "200" ]] && break
-  sleep 2
-done
+  shop_code=""
+  attempt=0
+  set +e
+  for attempt in $(seq 1 12); do
+    shop_code="$(curl -s -o /tmp/cs-shop-probe.json -w '%{http_code}' \
+      -H "Host: ${HOST_HEADER}" http://127.0.0.1/shop/categories)"
+    [ "$shop_code" = "200" ] && break
+    sleep 3
+  done
+  set -e
 
-if [[ "$shop_code" != "200" ]]; then
-  echo "" >&2
-  echo "!! /shop/categories 自检失败（HTTP ${shop_code:-无响应}）—— 商城相关页面会整片报错。" >&2
-  echo "   1) 确认 deploy/Caddyfile 里有 @shop 规则，且 caddy 容器已加载：" >&2
-  echo "      docker exec cs-caddy wget -qO- http://127.0.0.1:2019/config/ | grep -c '/shop'" >&2
-  echo "   2) 手动重新加载：docker exec cs-caddy caddy reload --config /etc/caddy/Caddyfile" >&2
-  echo "   3) 若 Caddy 配置正常，则问题在中台：docker logs cs-ecommerce --tail 50" >&2
-  exit 1
+  if [ "$shop_code" != "200" ]; then
+    echo "" >&2
+    echo "!! /shop/categories 自检失败（HTTP ${shop_code:-无响应}）—— 商城相关页面会整片报错。" >&2
+    echo "   响应前 200 字节：$(head -c 200 /tmp/cs-shop-probe.json 2>/dev/null)" >&2
+    echo "   1) Caddy 实际加载的配置里有没有 /shop 规则（0 = 还是旧配置）：" >&2
+    echo "      docker exec cs-caddy wget -qO- http://127.0.0.1:2019/config/ | grep -c '/shop'" >&2
+    echo "   2) 手动重新加载：docker exec cs-caddy caddy reload --config /etc/caddy/Caddyfile" >&2
+    echo "   3) 若 Caddy 配置正常，则问题在中台：docker logs cs-ecommerce --tail 50" >&2
+    exit 1
+  fi
+  echo "==> /shop/* 反代自检通过（HTTP 200，第 ${attempt} 次探测）"
 fi
-echo "==> /shop/* 反代自检通过（HTTP 200）"
 
 echo "==> 当前容器状态"
 dc ps
