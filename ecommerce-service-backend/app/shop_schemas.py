@@ -387,3 +387,134 @@ class ReviewListData(BaseModel):
     rating_avg: Decimal
     rating_count: int
     reviews: list[ReviewData]
+
+
+# ---------------------------------------------------------------- 运营端
+class AdminOrderListItem(BaseModel):
+    order_id: str
+    user_id: str
+    nickname: str
+    status: str
+    status_desc: str
+    pay_amount: Decimal
+    quantity: int
+    title: str
+    created_at: datetime
+    paid_at: datetime | None = None
+    logistics_company: str | None = None
+    tracking_number: str | None = None
+
+
+class AdminOrderListData(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    status_counts: dict[str, int]
+    orders: list[AdminOrderListItem]
+
+
+class ShipRequest(BaseModel):
+    company: str = Field(default="顺丰速运", max_length=64)
+    tracking_number: str | None = Field(
+        default=None, max_length=64, description="不传则自动生成")
+
+
+class AdvanceRequest(BaseModel):
+    remark: str | None = Field(default=None, max_length=255)
+
+
+class RemarkRequest(BaseModel):
+    remark: str | None = Field(default=None, max_length=255)
+
+
+class FulfillmentData(BaseModel):
+    order_id: str
+    status: str
+    status_desc: str
+    logistics_company: str | None = None
+    tracking_number: str | None = None
+    latest_trace: str | None = None
+
+
+class StockUpdateRequest(BaseModel):
+    stock: int = Field(ge=0, description="调整后的库存绝对值")
+    reason: str = Field(default="运营调整", max_length=64)
+
+
+class StockData(BaseModel):
+    sku_code: str
+    product_id: str
+    title: str
+    spec_text: str
+    stock: int
+    change: int
+    status: str
+
+
+class LowStockData(BaseModel):
+    sku_code: str
+    product_id: str
+    title: str
+    spec_text: str
+    stock: int
+
+
+class CouponCreateRequest(BaseModel):
+    code: str = Field(min_length=2, max_length=32)
+    name: str = Field(min_length=2, max_length=64)
+    type: str = Field(description="full_reduce / discount")
+    threshold: Decimal = Field(default=Decimal("0"), ge=0)
+    amount: Decimal | None = Field(default=None, gt=0)
+    rate: Decimal | None = Field(default=None, gt=0, lt=1)
+    days: int = Field(default=30, ge=1, le=365)
+    total: int = Field(default=100, ge=0)
+    per_user_limit: int = Field(default=1, ge=1)
+
+
+class CouponAdminData(BaseModel):
+    code: str
+    name: str
+    type: str
+    threshold: Decimal
+    amount: Decimal | None = None
+    rate: Decimal | None = None
+    start_at: datetime
+    end_at: datetime
+    total: int
+    claimed: int
+    used_count: int
+    per_user_limit: int
+
+
+class CouponGrantRequest(BaseModel):
+    user_ids: list[str] = Field(min_length=1)
+
+
+class CouponGrantData(BaseModel):
+    code: str
+    granted: int
+    skipped: list[str] = Field(default_factory=list, description="超出限领或用户不存在的用户")
+
+
+class TopProductData(BaseModel):
+    product_id: str
+    title: str
+    quantity: int
+    amount: Decimal
+
+
+class StatsData(BaseModel):
+    gmv: Decimal
+    paid_order_count: int
+    finished_order_count: int
+    canceled_order_count: int
+    status_counts: dict[str, int]
+    after_sale_count: int
+    after_sale_rate: Decimal = Field(description="售后率（百分比，保留两位）")
+    coupon_issued: int
+    coupon_used: int
+    points_issued: int
+    user_count: int
+    product_count: int
+    low_stock: list[LowStockData]
+    top_products: list[TopProductData]

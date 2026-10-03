@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.api import router
+from app.shop_admin_api import router as shop_admin_router
 from app.shop_after_sale_api import router as shop_after_sale_router
 from app.shop_api import router as shop_router
 from app.shop_service import ShopError
@@ -58,6 +59,26 @@ openapi_tags = [
         "name": "交易-评价",
         "description": "订单评价、追评与商品评价聚合。",
     },
+    {
+        "name": "运营-订单",
+        "description": "商家后台：全站订单查询、发货与履约推进。",
+    },
+    {
+        "name": "运营-售后",
+        "description": "商家后台：售后审核台与评价回复。",
+    },
+    {
+        "name": "运营-库存",
+        "description": "商家后台：库存调整与低库存预警。",
+    },
+    {
+        "name": "运营-营销",
+        "description": "商家后台：优惠券模板与定向发券。",
+    },
+    {
+        "name": "运营-看板",
+        "description": "商家后台：GMV、订单分布、售后率、热销榜等经营指标。",
+    },
 ]
 
 
@@ -76,6 +97,8 @@ app.include_router(router)
 # 交易域独立命名空间：既有只读接口的路径与响应结构一概不动
 app.include_router(shop_router, prefix="/shop")
 app.include_router(shop_after_sale_router, prefix="/shop")
+# 运营管理端：商家后台视角（订单履约、售后审核台、库存、发券、看板）
+app.include_router(shop_admin_router, prefix="/shop/admin")
 
 
 @app.exception_handler(ShopError)

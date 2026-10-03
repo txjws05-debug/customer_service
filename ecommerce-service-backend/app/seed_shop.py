@@ -259,6 +259,36 @@ def _backfill_members(db: Session) -> None:
     if orders:
         logger.info("回填订单实付金额 %d 笔", len(orders))
 
+    # 历史订单还缺状态时间戳：凡是「已过待付款」的状态都说明付过款，
+    # 不补的话经营看板的 GMV 会统计成 0（GMV 只认已付款订单）
+    paid_statuses = {
+        rules.STATUS_PENDING_SHIP, rules.STATUS_PENDING_PICKUP,
+        rules.STATUS_IN_TRANSIT, rules.STATUS_PENDING_RECEIVE, rules.STATUS_FINISHED,
+    }
+    shipped_statuses = {
+        rules.STATUS_PENDING_PICKUP, rules.STATUS_IN_TRANSIT,
+        rules.STATUS_PENDING_RECEIVE, rules.STATUS_FINISHED,
+    }
+    stale = db.scalars(
+        select(models.Order)
+        .filter(models.Order.paid_at.is_(None))
+        .filter(models.Order.pay_amount.isnot(None))
+    ).all()
+    touched = 0
+    for order in stale:
+        if order.status in paid_statuses:
+            order.paid_at = order.created_at + timedelta(hours=1)
+            touched += 1
+            if order.shipped_at is None and order.status in shipped_statuses:
+                order.shipped_at = order.created_at + timedelta(hours=6)
+            if order.received_at is None and order.status == rules.STATUS_FINISHED:
+                order.received_at = order.created_at + timedelta(days=2)
+        elif order.status == rules.STATUS_CANCELED and not order.close_reason:
+            order.close_reason = "历史取消订单"
+    db.flush()
+    if touched:
+        logger.info("回填历史订单的支付/发货/收货时间 %d 笔", touched)
+
 
 def _seed_reviews(db: Session) -> None:
     if not _empty(db, models.Review):
