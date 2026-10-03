@@ -222,6 +222,12 @@ jobs:
     needs: build-and-push
     environment: production
     steps:
+      # deploy job 只在服务器上通过 SSH 操作，本来不需要本地代码；
+      # 但「预先校验配置形态」那一步要跑仓库里的 deploy/check-secrets.sh，
+      # 没有 checkout 就会 No such file or directory（exit 127）——线上真踩过。
+      # tests/test_workflows.py 里有断言盯着这件事。
+      - uses: actions/checkout@v4
+
       - name: 检查服务器部署密钥是否已配置
         # 未配置 Secrets 时不再让整个 workflow 变红：只告警并跳过部署。
         # 5 个 Secrets 都配好之后，这一步会自动放行，无需再改 workflow。
