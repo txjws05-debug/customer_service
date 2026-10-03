@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   Check,
   ClipboardList,
@@ -10,16 +11,15 @@ import {
   Package,
   RefreshCw,
   Send,
+  ShoppingBag,
   Square,
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 
-import {
-  fetchHistory,
-  streamChat,
-  type ChatObject,
-} from "@/lib/api";
+import { fetchHistory, streamChat, type ChatObject } from "@/lib/api";
+import { getUser } from "@/lib/auth";
+import { commerceUserId, money, shop, type OrderListItem } from "@/lib/shop";
 
 interface UIMessage {
   id: string;
@@ -27,21 +27,6 @@ interface UIMessage {
   text?: string;
   object?: ChatObject;
 }
-
-// 演示用对象（独立前端没有商城页面，用它走通对象消息链路）
-const MOCK_PRODUCT: ChatObject = {
-  type: "product",
-  id: "P1001",
-  title: "春季纯棉卫衣",
-  attributes: { 价格: "¥129", 分类: "服装" },
-};
-
-const MOCK_ORDER: ChatObject = {
-  type: "order",
-  id: "A1001",
-  title: "订单 A1001",
-  attributes: { 状态: "已发货", 金额: "¥129" },
-};
 
 function ObjectCard({
   object,
@@ -91,6 +76,10 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // 真实订单选择器：给客服发对象卡片用
+  const [showOrders, setShowOrders] = useState(false);
+  const [myOrders, setMyOrders] = useState<OrderListItem[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -202,6 +191,38 @@ export default function ChatPage() {
   const sendObject = (object: ChatObject) => {
     if (loading) return;
     runChat({ object });
+  };
+
+  // 「发送我的订单」：拉真实的订单列表让用户挑一条发给客服
+  // （以前这里发的是写死的假订单 A1001，客服自然查不到）。
+  const openOrderPicker = async () => {
+    if (loading) return;
+    if (showOrders) {
+      setShowOrders(false);
+      return;
+    }
+    setShowOrders(true);
+    if (myOrders.length > 0) return;
+    setOrdersLoading(true);
+    try {
+      const account = commerceUserId(getUser()?.username);
+      const data = await shop.orders(account);
+      setMyOrders((data.orders ?? []).slice(0, 5));
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
+  const pickOrder = (order: OrderListItem) => {
+    setShowOrders(false);
+    sendObject({
+      type: "order",
+      id: order.order_id,
+      title: order.title,
+      attributes: { 状态: order.status, 金额: money(order.pay_amount) },
+    });
   };
 
   const stopGeneration = () => {
@@ -320,24 +341,58 @@ export default function ChatPage() {
       {/* Input */}
       <div className="border-t border-slate-200 bg-white px-2 py-3 sm:px-4">
         <div className="mx-auto max-w-3xl">
-          {/* 演示对象入口 */}
-          <div className="mb-2 flex flex-wrap gap-2">
+          {/* 对象入口：订单是从接口拉的真实订单，商品去商城挑（以前发的是写死的假数据） */}
+          <div className="mb-2 flex flex-wrap items-center gap-2">
             <button
-              onClick={() => sendObject(MOCK_PRODUCT)}
-              disabled={loading}
-              className="flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 transition hover:border-indigo-300 hover:text-indigo-600 disabled:opacity-40"
-            >
-              <Package size={13} />
-              发送商品卡片
-            </button>
-            <button
-              onClick={() => sendObject(MOCK_ORDER)}
+              onClick={openOrderPicker}
               disabled={loading}
               className="flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 transition hover:border-indigo-300 hover:text-indigo-600 disabled:opacity-40"
             >
               <ClipboardList size={13} />
-              发送订单卡片
+              发送我的订单
             </button>
+            <Link
+              href="/shop"
+              className="flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 transition hover:border-indigo-300 hover:text-indigo-600"
+            >
+              <ShoppingBag size={13} />
+              去商城挑商品
+            </Link>
+
+            {showOrders && (
+              <div className="w-full rounded-xl border border-slate-200 bg-white p-2">
+                {ordersLoading ? (
+                  <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400">
+                    <Loader2 size={13} className="animate-spin" />
+                    正在读取你的订单…
+                  </div>
+                ) : myOrders.length === 0 ? (
+                  <p className="px-2 py-1.5 text-xs text-slate-400">
+                    还没有订单，去商城下单后再来问我。
+                  </p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {myOrders.map((order) => (
+                      <li key={order.order_id}>
+                        <button
+                          onClick={() => pickOrder(order)}
+                          className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-xs transition hover:bg-slate-100"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-slate-700">
+                            {order.title}
+                            <span className="ml-2 text-slate-400">{order.order_id}</span>
+                          </span>
+                          <span className="shrink-0 text-slate-500">{order.status}</span>
+                          <span className="shrink-0 font-medium text-slate-700">
+                            {money(order.pay_amount)}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <input
