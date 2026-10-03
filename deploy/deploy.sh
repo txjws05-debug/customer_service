@@ -95,57 +95,65 @@ fi
 # --remove-orphans 会清掉已从 compose 中移除的服务（例如原先的 MySQL）
 dc up -d --remove-orphans
 
-# ---------- 重新加载 Caddy 配置 ----------
-# Caddyfile 是以 bind mount 挂进容器的：它的**内容**变了，compose 不会重建容器，
-# 于是线上仍然跑着旧路由 —— 新加的反代规则（例如 /shop/* 转发到中台）会直接 404。
-# 这里显式 reload；reload 依赖 admin API，失败就退回重启容器。
-if docker ps --format '{{.Names}}' | grep -qx cs-caddy; then
-  echo "==> 重新加载 Caddy 配置"
-  if ! docker exec cs-caddy caddy reload --config /etc/caddy/Caddyfile; then
-    echo "!! Caddy reload 失败（admin API 不可用？），改为重启容器"
-    dc restart caddy
-  fi
-fi
-
-# 清理历史镜像，防止磁盘被旧镜像撑满
-docker image prune -f --filter "until=72h" >/dev/null 2>&1 || true
-
-# ---------- 反代自检：/shop/* 必须真的被 Caddy 转给中台 ----------
-# 两个踩过的坑：
-#   1) set -e 下 `var="$(命令失败)"` 会当场结束脚本 —— 上次就是这样：探测挂掉后
-#      日志里既没有「通过」也没有「失败」，只留一个 exit 1，完全看不出原因；
-#   2) 中台容器启动时要先建表/迁移/补种才监听端口，探测必须留足重试时间。
-# 这里从宿主机走 Caddy（和浏览器同一条路径），失败时把响应体也打出来。
-if ! command -v curl >/dev/null 2>&1; then
-  echo "!! 服务器上没有 curl，跳过 /shop 反代自检" >&2
-else
+# ---------- 重新加载 Caddy 配置，并验证真的生效 ----------
+# Caddyfile 是以 bind mount 挂进容器的：内容变了 compose 不会重建容器。
+# 更坑的是：**reload 返回 0 不等于规则生效** —— 线上真实出现过「reload 日志正常，
+# /shop/* 却仍然被前端接管」（浏览器拿到的是 HTML，后端接口 404/JSON 解析失败）。
+# 所以这里不看退出码，只看结果：reload → 探测 → 不通过就重启容器 → 再探测。
+if docker ps --format '{{.Names}}' | grep -qx cs-caddy && command -v curl >/dev/null 2>&1; then
   SITE="$(sed -n 's/^SITE_ADDRESS=//p' "$ENV_FILE" | head -1)"
   HOST_HEADER="${SITE%%:*}"
   [[ -z "$HOST_HEADER" ]] && HOST_HEADER=127.0.0.1
 
-  shop_code=""
-  attempt=0
-  set +e
-  for attempt in $(seq 1 12); do
-    shop_code="$(curl -s -o /tmp/cs-shop-probe.json -w '%{http_code}' \
-      -H "Host: ${HOST_HEADER}" http://127.0.0.1/shop/categories)"
-    [ "$shop_code" = "200" ] && break
-    sleep 3
-  done
-  set -e
+  # 探测失败绝不能终止脚本：set -e 下 `var="$(命令失败)"` 会当场退出（踩过）
+  probe_shop() {
+    curl -s -o /tmp/cs-shop-probe.json -w '%{http_code}' \
+      -H "Host: ${HOST_HEADER}" http://127.0.0.1/shop/categories 2>/dev/null || true
+  }
 
-  if [ "$shop_code" != "200" ]; then
-    echo "" >&2
-    echo "!! /shop/categories 自检失败（HTTP ${shop_code:-无响应}）—— 商城相关页面会整片报错。" >&2
-    echo "   响应前 200 字节：$(head -c 200 /tmp/cs-shop-probe.json 2>/dev/null)" >&2
-    echo "   1) Caddy 实际加载的配置里有没有 /shop 规则（0 = 还是旧配置）：" >&2
-    echo "      docker exec cs-caddy wget -qO- http://127.0.0.1:2019/config/ | grep -c '/shop'" >&2
-    echo "   2) 手动重新加载：docker exec cs-caddy caddy reload --config /etc/caddy/Caddyfile" >&2
-    echo "   3) 若 Caddy 配置正常，则问题在中台：docker logs cs-ecommerce --tail 50" >&2
-    exit 1
+  wait_shop_ok() {
+    local attempts="$1" i code
+    for i in $(seq 1 "$attempts"); do
+      code="$(probe_shop)"
+      if [ "$code" = "200" ]; then
+        echo "$i"
+        return 0
+      fi
+      sleep 3
+    done
+    return 1
+  }
+
+  echo "==> 重建 Caddy 容器以加载最新配置"
+  # 实测「caddy reload 返回 0」并不等于规则生效（线上出现过 reload 日志正常、
+  # /shop/* 仍被前端接管）。重建容器是确定性的做法，代价只是两三秒连接中断。
+  dc up -d --force-recreate --no-deps caddy
+  sleep 2
+
+  if ! waited="$(wait_shop_ok 8)"; then
+    echo "!! reload 后 /shop/* 仍未生效，重启 Caddy 容器再试"
+    dc restart caddy
+    if ! waited="$(wait_shop_ok 8)"; then
+      echo "" >&2
+      echo "!! /shop/categories 自检失败（HTTP $(probe_shop)）—— 商城相关页面会整片报错。" >&2
+      echo "   响应前 200 字节：$(head -c 200 /tmp/cs-shop-probe.json 2>/dev/null)" >&2
+      echo "   容器里的 Caddyfile 有几处 @shop 规则（0 = 挂载的文件是旧的）：" >&2
+      echo "     $(docker exec cs-caddy grep -c '@shop' /etc/caddy/Caddyfile 2>/dev/null || echo '读取失败')" >&2
+      echo "   运行中的配置里有几处 /shop（0 = 加载的是旧配置）：" >&2
+      echo "     $(docker exec cs-caddy wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | grep -c '/shop' || echo '读取失败')" >&2
+      echo "   手动处理：docker restart cs-caddy 后重试" >&2
+      exit 1
+    fi
+    echo "==> 重启 Caddy 后 /shop/* 反代自检通过（第 ${waited} 次探测）"
+  else
+    echo "==> /shop/* 反代自检通过（第 ${waited} 次探测）"
   fi
-  echo "==> /shop/* 反代自检通过（HTTP 200，第 ${attempt} 次探测）"
+elif ! command -v curl >/dev/null 2>&1; then
+  echo "!! 服务器上没有 curl，跳过 /shop 反代自检" >&2
 fi
+
+# 清理历史镜像，防止磁盘被旧镜像撑满
+docker image prune -f --filter "until=72h" >/dev/null 2>&1 || true
 
 echo "==> 当前容器状态"
 dc ps
