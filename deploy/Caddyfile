@@ -17,6 +17,16 @@
 		reverse_proxy backend:18082
 	}
 
+	# 电商中台交易域：商城页面直接调用（/shop/*，含运营端 /shop/admin/*）
+	#
+	# 注意：中台自身没有鉴权，运营端接口目前对公网开放。演示项目可接受，
+	# 但生产必须在这里加访问控制（basic_auth / forward_auth），
+	# 或者把 /shop/admin/* 单独限制到内网。
+	@shop path /shop/*
+	handle @shop {
+		reverse_proxy ecommerce:18081
+	}
+
 	# 其余全部交给 Next.js
 	handle {
 		reverse_proxy frontend:3000

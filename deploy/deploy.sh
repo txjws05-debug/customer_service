@@ -95,6 +95,18 @@ fi
 # --remove-orphans 会清掉已从 compose 中移除的服务（例如原先的 MySQL）
 dc up -d --remove-orphans
 
+# ---------- 重新加载 Caddy 配置 ----------
+# Caddyfile 是以 bind mount 挂进容器的：它的**内容**变了，compose 不会重建容器，
+# 于是线上仍然跑着旧路由 —— 新加的反代规则（例如 /shop/* 转发到中台）会直接 404。
+# 这里显式 reload；reload 依赖 admin API，失败就退回重启容器。
+if docker ps --format '{{.Names}}' | grep -qx cs-caddy; then
+  echo "==> 重新加载 Caddy 配置"
+  if ! docker exec cs-caddy caddy reload --config /etc/caddy/Caddyfile; then
+    echo "!! Caddy reload 失败（admin API 不可用？），改为重启容器"
+    dc restart caddy
+  fi
+fi
+
 # 清理历史镜像，防止磁盘被旧镜像撑满
 docker image prune -f --filter "until=72h" >/dev/null 2>&1 || true
 

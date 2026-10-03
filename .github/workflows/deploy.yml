@@ -113,6 +113,15 @@ jobs:
           done
           echo "编排文件职责划分校验通过"
 
+      - name: 校验 Caddyfile 语法
+        # Caddyfile 写错要到线上 reload 才暴露（而且是部署后才 404，排查成本高）。
+        # 这里用官方镜像先校验一遍；{$SITE_ADDRESS} 需要给个值，否则占位符为空。
+        run: |
+          docker run --rm -e SITE_ADDRESS=:80 \
+            -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          echo "Caddyfile 语法校验通过"
+
       - name: 校验 CI 推送的镜像名与 compose 拉取的一致
         # 曾经的坑：workflow 里写成 ${IMAGE_PREFIX}-${matrix.image}，而 IMAGE_PREFIX
         # 本身已含 customer-service，于是包名被拼成
