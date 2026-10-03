@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     # 商城 API
     commerce_api_base_url: str
 
+    # 登录用户 → 商城用户号的兜底映射（演示用）。
+    # 真实系统应该是一张「账号绑定」表（用户在自己的个人中心绑定商城账号）；
+    # 演示环境里，登录名不是商城号时统一按这个账号办理交易，
+    # 这样「加购/下单/查券」都能直接演示。留空则不做兜底，提示用户去绑定。
+    commerce_default_user_id: str = "u1001"
+
     # JWT：本地兜底默认值，推荐通过 .env / 环境变量覆盖
     jwt_secret_key: str = "customer-service-dev-secret-please-change"
     jwt_algorithm: str = "HS256"

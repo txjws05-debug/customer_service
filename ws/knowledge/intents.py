@@ -41,4 +41,25 @@ KNOWLEDGE_INTENTS :dict[str,KnowledgeIntent]={
         id="general_ecommerce_info", description="电商通用信息咨询",
         provider_ids=["faq.default", "rag.default"],
     ),
+    # ---------- 交易域规则（下单/支付/券/积分/售后）----------
+    "coupon_policy": KnowledgeIntent(
+        id="coupon_policy", description="优惠券规则咨询（怎么领、怎么用、门槛、有效期）",
+        provider_ids=["faq.default", "rag.default"],
+    ),
+    "points_policy": KnowledgeIntent(
+        id="points_policy", description="积分与会员权益咨询（怎么获得、怎么用、等级）",
+        provider_ids=["faq.default", "rag.default"],
+    ),
+    "payment_policy": KnowledgeIntent(
+        id="payment_policy", description="支付相关咨询（支付方式、待付款超时、退款到账）",
+        provider_ids=["faq.default", "rag.default"],
+    ),
+    "after_sale_policy": KnowledgeIntent(
+        id="after_sale_policy", description="售后政策咨询（仅退款/退货退款区别、流程、时限）",
+        provider_ids=["faq.default", "rag.default"],
+    ),
+    "trade_guide": KnowledgeIntent(
+        id="trade_guide", description="下单流程指引（怎么加购、怎么下单、运费怎么算、怎么查订单）",
+        provider_ids=["faq.default", "rag.default"],
+    ),
 }

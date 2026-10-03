@@ -44,6 +44,92 @@ slots:
     label: 推荐结果
     description: 相似商品推荐结果的展示文本
 
+  # ---------- 交易域（购物车 / 下单 / 支付 / 收货 / 营销 / 售后 / 搜索）----------
+  sku_code:
+    type: text
+    label: 商品规格编码
+    description: 规格编码，形如 SKU10001-01；用户说商品名时由系统自动挑选
+
+  sku_spec:
+    type: text
+    label: 规格描述
+    description: 本次选中的规格，例如 颜色:远峰蓝 容量:256GB
+
+  quantity:
+    type: text
+    label: 购买数量
+    description: 用户要购买的数量，例如「两件」「3 个」
+
+  coupon_code:
+    type: text
+    label: 优惠券码
+    description: 用户指定要使用的优惠券码，例如 C_9OFF；未指定则不用券
+
+  keyword:
+    type: text
+    label: 搜索关键词
+    description: 用户想找的商品关键词，例如「耳机」「电热水壶」
+
+  after_sale_type:
+    type: text
+    label: 售后类型
+    description: 只能取 refund_only（仅退款，不退货）或 return_refund（退货退款）
+
+  cart_summary:
+    type: text
+    label: 购物车摘要
+    description: 购物车内容与金额的展示文本
+
+  order_list_summary:
+    type: text
+    label: 订单列表摘要
+    description: 我的订单列表展示文本
+
+  coupon_summary:
+    type: text
+    label: 优惠券摘要
+    description: 我的优惠券展示文本
+
+  points_summary:
+    type: text
+    label: 积分摘要
+    description: 我的积分与会员等级展示文本
+
+  search_summary:
+    type: text
+    label: 搜索结果
+    description: 商品搜索结果的展示文本
+
+  after_sale_summary:
+    type: text
+    label: 售后结果
+    description: 售后申请的受理结果文本
+
+  pay_amount:
+    type: text
+    label: 应付金额
+    description: 订单应付金额
+
+  pay_status:
+    type: text
+    label: 支付状态
+    description: 支付后的订单状态
+
+  receipt_summary:
+    type: text
+    label: 收货结果
+    description: 确认收货的结果文本
+
+  goods_amount:
+    type: text
+    label: 商品金额
+    description: 结算时用来判断优惠券是否可用的商品金额
+
+  pay_channel:
+    type: text
+    label: 支付渠道
+    description: wechat（微信）/ alipay（支付宝）/ card（银行卡），默认 wechat
+
 flows:
   onboarding:
     name: 欢迎引导
@@ -204,6 +290,300 @@ flows:
         type: response
         template:
           text: "好的，我来为你转接人工客服，请稍等。"
+        next: end
+
+      - id: end
+        type: end
+        next: []
+
+  # ============================================================ 交易域流程
+  cart_add:
+    name: 加入购物车
+    description: 把用户正在看的商品加入购物车，可以指定数量。用户说「加购」「加入购物车」「帮我买这个先放购物车」时使用。
+    steps:
+      - id: start
+        type: start
+        next: need_product
+
+      - id: need_product
+        type: collect
+        slot_name: product_id
+        template:
+          text: "请先打开或选择你要加购的商品，也可以直接告诉我商品名，我帮你找。"
+        next: add_to_cart
+
+      - id: add_to_cart
+        type: action
+        action: action_add_to_cart
+        next: show_cart
+
+      - id: show_cart
+        type: response
+        template:
+          text: "已加入购物车：规格 {{ slots.sku_spec }}，数量 {{ slots.quantity }}。\n{{ slots.cart_summary }}"
+        next: end
+
+      - id: end
+        type: end
+        next: []
+
+  cart_view:
+    name: 查看购物车
+    description: 查看购物车里的商品、数量和金额。用户问「我的购物车有什么」「购物车多少钱」时使用。
+    steps:
+      - id: start
+        type: start
+        next: view_cart
+
+      - id: view_cart
+        type: action
+        action: action_view_cart
+        next: show_cart
+
+      - id: show_cart
+        type: response
+        template:
+          text: "{{ slots.cart_summary }}"
+        next: end
+
+      - id: end
+        type: end
+        next: []
+
+  place_order:
+    name: 结算下单
+    description: 结算购物车中已勾选的商品并生成订单（订单进入待付款，30 分钟内未支付会自动关闭）。用户说「下单」「结算」「帮我买」时使用；购物车为空时先引导加购。
+    steps:
+      - id: start
+        type: start
+        next: create_order
+
+      - id: create_order
+        type: action
+        action: action_place_order
+        next: show_order
+
+      - id: show_order
+        type: response
+        template:
+          text: "{{ slots.order_summary }}"
+        next: end
+
+      - id: end
+        type: end
+        next: []
+
+  buy_now:
+    name: 立即购买
+    description: 不经过购物车，直接为当前商品创建订单（进入待付款）。用户说「我要买这个」「直接下单买它」时使用。
+    steps:
+      - id: start
+        type: start
+        next: need_product
+
+      - id: need_product
+        type: collect
+        slot_name: product_id
+        template:
+          text: "请先打开或选择你要购买的商品，我来帮你下单。"
+        next: create_order
+
+      - id: create_order
+        type: action
+        action: action_place_order
+        args:
+          mode: direct
+        next: show_order
+
+      - id: show_order
+        type: response
+        template:
+          text: "{{ slots.order_summary }}"
+        next: end
+
+      - id: end
+        type: end
+        next: []
+
+  pay_order:
+    name: 支付订单
+    description: 为待付款订单付款。用户说「支付」「付款」「去付款」时使用。
+    steps:
+      - id: start
+        type: start
+        next: need_order
+
+      - id: need_order
+        type: collect
+        slot_name: order_number
+        template:
+          text: "请告诉我需要支付的订单号。"
+        next: pay
+
+      - id: pay
+        type: action
+        action: action_pay_order
+        next: show_pay
+
+      - id: show_pay
+        type: response
+        template:
+          text: "{{ slots.order_summary }}"
+        next: end
+
+      - id: end
+        type: end
+        next: []
+
+  order_list:
+    name: 我的订单
+    description: 列出用户的订单，可以按状态筛选（待付款/待发货/运输中/待收货/已完成/已取消）。用户问「我的订单」「我买过什么」「我有哪些待付款订单」时使用。
+    steps:
+      - id: start
+        type: start
+        next: list_orders
+
+      - id: list_orders
+        type: action
+        action: action_list_my_orders
+        next: show_orders
+
+      - id: show_orders
+        type: response
+        template:
+          text: "{{ slots.order_list_summary }}"
+        next: end
+
+      - id: end
+        type: end
+        next: []
+
+  confirm_receipt:
+    name: 确认收货
+    description: 用户确认收到商品，订单完成并发放积分。用户说「确认收货」「收到了」「已收到货」时使用。
+    steps:
+      - id: start
+        type: start
+        next: need_order
+
+      - id: need_order
+        type: collect
+        slot_name: order_number
+        template:
+          text: "请告诉我需要确认收货的订单号。"
+        next: receive
+
+      - id: receive
+        type: action
+        action: action_confirm_receipt
+        next: show_receipt
+
+      - id: show_receipt
+        type: response
+        template:
+          text: "{{ slots.order_summary }}"
+        next: end
+
+      - id: end
+        type: end
+        next: []
+
+  my_benefits:
+    name: 我的优惠券与积分
+    description: 查询用户名下的优惠券（含是否可用）与积分、会员等级。用户问「我有什么券」「我有多少积分」「我的会员权益」时使用。
+    steps:
+      - id: start
+        type: start
+        next: list_coupons
+
+      - id: list_coupons
+        type: action
+        action: action_list_my_coupons
+        next: show_points
+
+      - id: show_points
+        type: action
+        action: action_my_points
+        next: respond
+
+      - id: respond
+        type: response
+        template:
+          text: "{{ slots.coupon_summary }}\n\n{{ slots.points_summary }}"
+        next: end
+
+      - id: end
+        type: end
+        next: []
+
+  after_sale_request:
+    name: 申请售后
+    description: 为订单申请售后（仅退款或退货退款），需要订单号、售后类型和原因。用户说「我要退货」「申请退款」「这个商品有问题要退」时使用。
+    steps:
+      - id: start
+        type: start
+        next: need_order
+
+      - id: need_order
+        type: collect
+        slot_name: order_number
+        template:
+          text: "请告诉我需要申请售后的订单号。"
+        next: need_type
+
+      - id: need_type
+        type: collect
+        slot_name: after_sale_type
+        template:
+          text: "请问是仅退款（不退货）还是退货退款？"
+        next: need_reason
+
+      - id: need_reason
+        type: collect
+        slot_name: refund_reason
+        template:
+          text: "请简单说明一下申请售后的原因。"
+        next: apply
+
+      - id: apply
+        type: action
+        action: action_apply_after_sale
+        next: show_after_sale
+
+      - id: show_after_sale
+        type: response
+        template:
+          text: "{{ slots.after_sale_summary }}"
+        next: end
+
+      - id: end
+        type: end
+        next: []
+
+  product_search:
+    name: 找商品
+    description: 按关键词、价格区间或销量/价格排序帮用户找商品，可以带出品牌、评分和销量。用户说「有没有 xx」「找一下便宜的 xx」「推荐几个 xx」时使用。
+    steps:
+      - id: start
+        type: start
+        next: need_keyword
+
+      - id: need_keyword
+        type: collect
+        slot_name: keyword
+        template:
+          text: "你想找什么商品？告诉我关键词就行，比如「耳机」「电热水壶」。"
+        next: search
+
+      - id: search
+        type: action
+        action: action_search_products
+        next: show_search
+
+      - id: show_search
+        type: response
+        template:
+          text: "{{ slots.search_summary }}"
         next: end
 
       - id: end

@@ -6,11 +6,38 @@ from ws.task.action.registry import ActionRegistry
 from ws.task.custom.logistics_tracking import LookupTracking
 from ws.task.custom.lookup_order_status import LookupOrderStatus
 from ws.task.custom.similar_products import RecommendSimilarProducts
+from ws.task.custom.shop_after_sale import ApplyAfterSale
+from ws.task.custom.shop_cart import AddToCart, ViewCart
+from ws.task.custom.shop_checkout import PayOrder, PlaceOrder
+from ws.task.custom.shop_marketing import ListMyCoupons, MyPoints
+from ws.task.custom.shop_orders import ConfirmReceipt, ListMyOrders
+from ws.task.custom.shop_search import SearchProducts
+
+# 系统内置的业务能力清单。
+# 交易域（购物车/下单/支付/收货/优惠券/积分/售后/搜索）在这里一次性登记，
+# 新增能力只需加一行 + 在 user_flows.yml 里编排成流程。
+_SERVICE_ACTIONS: list[type[Action]] = [
+    # 只读查询
+    LookupTracking,
+    LookupOrderStatus,
+    RecommendSimilarProducts,
+    # 交易
+    AddToCart,
+    ViewCart,
+    PlaceOrder,
+    PayOrder,
+    ListMyOrders,
+    ConfirmReceipt,
+    ListMyCoupons,
+    MyPoints,
+    ApplyAfterSale,
+    SearchProducts,
+]
+
 
 def register_service_action(registry: ActionRegistry):
-    registry.register_action(LookupTracking())
-    registry.register_action(LookupOrderStatus())
-    registry.register_action(RecommendSimilarProducts())
+    for action_class in _SERVICE_ACTIONS:
+        registry.register_action(action_class())
 
 def register_custom_actions(
         registry: ActionRegistry,

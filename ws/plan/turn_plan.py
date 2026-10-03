@@ -16,6 +16,19 @@ from ws.utils.llm_errors import as_chat_service_error
 
 logger = logging.getLogger("ws.plan.planner")
 
+
+def _describe_flow(flow) -> str:
+    """流程描述 + 该流程要收集的槽位名。
+
+    为什么必须带上槽位名：planner 只能看到流程描述，而 set_slots 需要精确的
+    槽位名。「买两件」到底写 quantity 还是 count，描述里不说清楚，模型只能猜；
+    猜错的表现是槽位永远填不上、流程反复追问同一句话。
+    """
+    slot_names = [slot.name for slot in getattr(flow, "slots", []) or []]
+    if not slot_names:
+        return flow.description
+    return f"{flow.description}（需要收集的槽位：{', '.join(slot_names)}）"
+
 # 解析失败时归类为这些异常 → 允许重试一次
 _PARSE_ERRORS = (
     OutputParserException, json.JSONDecodeError,
@@ -52,7 +65,7 @@ class TurnPlanner:
                 if state.share.focuse_object else "null",
             "flows_json":
                 json.dumps(
-                    {fid: flow.description
+                    {fid: _describe_flow(flow)
                      for fid, flow in flow_catalog.flows.items()},
                     ensure_ascii=False),
             "knowledge_intents_json":
