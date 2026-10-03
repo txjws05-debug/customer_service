@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { ShopHeader } from "@/components/ShopHeader";
 import { getToken, getUser } from "@/lib/auth";
 import {
   commerceUserId,
@@ -241,8 +240,7 @@ export default function CartPage() {
   const activeCoupon = coupons.find((c) => c.code === couponCode) ?? null;
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <ShopHeader cartCount={cart?.total_quantity} />
+    <div className="min-h-full">
 
       <main className="mx-auto max-w-6xl px-4 py-6">
         <h1 className="mb-4 flex items-center gap-2 text-lg font-semibold text-slate-800">

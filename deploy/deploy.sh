@@ -110,5 +110,32 @@ fi
 # 清理历史镜像，防止磁盘被旧镜像撑满
 docker image prune -f --filter "until=72h" >/dev/null 2>&1 || true
 
+# ---------- 反代自检：/shop/* 必须真的被 Caddy 转给中台 ----------
+# 这一条不通，商城/购物车/订单/运营后台整片不可用；而且现象通常是前端报 500，
+# 从错误里看不出是路由问题。所以部署时就用容器内的 wget 打一次真实响应。
+SITE="$(sed -n 's/^SITE_ADDRESS=//p' "$ENV_FILE" | head -1)"
+HOST_HEADER="${SITE%%:*}"
+[[ -z "$HOST_HEADER" ]] && HOST_HEADER=127.0.0.1
+
+shop_code=""
+for attempt in 1 2 3; do
+  shop_code="$(docker exec cs-caddy wget -qS -O /dev/null \
+    --header "Host: ${HOST_HEADER}" http://127.0.0.1/shop/categories 2>&1 \
+    | sed -n 's/.*HTTP\/1\.[01] \([0-9]\{3\}\).*/\1/p' | head -1)"
+  [[ "$shop_code" == "200" ]] && break
+  sleep 2
+done
+
+if [[ "$shop_code" != "200" ]]; then
+  echo "" >&2
+  echo "!! /shop/categories 自检失败（HTTP ${shop_code:-无响应}）—— 商城相关页面会整片报错。" >&2
+  echo "   1) 确认 deploy/Caddyfile 里有 @shop 规则，且 caddy 容器已加载：" >&2
+  echo "      docker exec cs-caddy wget -qO- http://127.0.0.1:2019/config/ | grep -c '/shop'" >&2
+  echo "   2) 手动重新加载：docker exec cs-caddy caddy reload --config /etc/caddy/Caddyfile" >&2
+  echo "   3) 若 Caddy 配置正常，则问题在中台：docker logs cs-ecommerce --tail 50" >&2
+  exit 1
+fi
+echo "==> /shop/* 反代自检通过（HTTP 200）"
+
 echo "==> 当前容器状态"
 dc ps

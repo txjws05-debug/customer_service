@@ -21,7 +21,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { ShopHeader } from "@/components/ShopHeader";
 import { getToken } from "@/lib/auth";
 import {
   ORDER_STATUSES,
@@ -192,8 +191,7 @@ export default function AdminOrdersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <ShopHeader />
+    <div className="min-h-full">
 
       <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
         <div className="flex flex-wrap items-end justify-between gap-3">

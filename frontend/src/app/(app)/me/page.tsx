@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { ShopHeader } from "@/components/ShopHeader";
 import { getToken, getUser } from "@/lib/auth";
 import {
   commerceUserId,
@@ -379,8 +378,7 @@ export default function MePage() {
     "rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-indigo-400";
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <ShopHeader />
+    <div className="min-h-full">
 
       <main className="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
         <h1 className="text-lg font-semibold text-slate-800">我的</h1>

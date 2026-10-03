@@ -8,7 +8,6 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, Package, ShoppingCart, Star, Truck } from "lucide-react";
 import { toast } from "sonner";
 
-import { ShopHeader } from "@/components/ShopHeader";
 import { getToken, getUser } from "@/lib/auth";
 import {
   commerceUserId,
@@ -208,8 +207,7 @@ export default function ProductDetailPage({
   const reviews = reviewList?.reviews?.slice(0, 10) ?? [];
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <ShopHeader />
+    <div className="min-h-full">
 
       <main className="mx-auto max-w-6xl px-4 py-6">
         <Link

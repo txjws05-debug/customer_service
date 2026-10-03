@@ -1,26 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Check,
   ClipboardList,
   Copy,
   Loader2,
-  LogOut,
   MessageCircle,
   Package,
   RefreshCw,
   Send,
   Square,
-  Store,
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 
 import {
-  clearToken,
   fetchHistory,
   streamChat,
   type ChatObject,
@@ -92,7 +87,6 @@ function ObjectCard({
 }
 
 export default function ChatPage() {
-  const router = useRouter();
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -237,49 +231,12 @@ export default function ChatPage() {
     }
   };
 
-  const handleLogout = () => {
-    clearToken();
-    router.push("/login");
-  };
-
   const lastBotId = [...messages].reverse().find((m) => m.role === "bot")?.id;
 
   return (
-    <div className="flex h-screen flex-col bg-slate-50">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-3 py-3 sm:px-4">
-        <div className="flex items-center gap-2">
-          <MessageCircle className="text-indigo-500" size={20} />
-          <h1 className="text-base font-semibold text-slate-800 sm:text-lg">
-            AI 智能客服
-          </h1>
-        </div>
-        <div className="flex items-center gap-1">
-          {/* 聊天页是入口，顺手把商城/订单入口放出来，免得用户找不到 */}
-          <Link
-            href="/shop"
-            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-slate-500 transition hover:bg-slate-100"
-          >
-            <Store size={16} />
-            <span className="hidden sm:inline">商城</span>
-          </Link>
-          <Link
-            href="/orders"
-            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-slate-500 transition hover:bg-slate-100"
-          >
-            <Package size={16} />
-            <span className="hidden sm:inline">我的订单</span>
-          </Link>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-slate-500 transition hover:bg-slate-100"
-          >
-            <LogOut size={16} />
-            <span className="hidden sm:inline">退出</span>
-          </button>
-        </div>
-      </header>
-
+    // 外壳（AppShell）已经提供了侧栏、顶栏标题和整屏高度，
+    // 这里只要把消息区做成「可滚动」、输入区固定在底部即可。
+    <div className="flex h-full min-h-0 flex-col">
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-2 py-4 sm:px-4">
         <div className="mx-auto flex max-w-3xl flex-col gap-4">

@@ -1,6 +1,28 @@
 @import "tailwindcss";
 
-/* 整个应用固定深色主题（登录星空 + 深色聊天界面） */
+/* ---------------------------------------------------------------- 语义色 token
+   组件里写「角色」而不是「色号」（text-body 而不是 text-gray-500）：
+   同一个类在浅色/深色下都能读，换主题时不用逐个组件改。
+   值取 Tailwind 默认调色板，所以从 slate-* 换成 token 不会改变观感。
+   这套命名与设计规范（语义色 + 左侧导航 + 顶栏标题）保持一致。 */
+@theme {
+  --color-brand: #4f46e5;         /* indigo-600 主色 */
+  --color-brand-dark: #4338ca;    /* indigo-700 */
+  --color-brand-soft: #eef2ff;    /* indigo-50 品牌色浅底（选中的导航项） */
+  --color-brand-ink: #4338ca;     /* indigo-700 该底色上的文字与图标 */
+  --color-canvas: #ffffff;        /* 页面/卡片底色 */
+  --color-subtle: #f9fafb;        /* gray-50 次级面板、表头 */
+  --color-muted-surface: #f3f4f6; /* gray-100 芯片、惰性控件 */
+  --color-raised: #e5e7eb;        /* gray-200 选中/填充态 */
+  --color-strong: #111827;        /* gray-900 标题与主要文字 */
+  --color-body: #374151;          /* gray-700 正文 */
+  --color-muted: #6b7280;         /* gray-500 次要文字 */
+  --color-faint: #9ca3af;         /* gray-400 占位符、禁用、图标 */
+  --color-line: #e5e7eb;          /* gray-200 边框与分割线 */
+  --color-line-strong: #d1d5db;   /* gray-300 控件边框、hover 分割线 */
+}
+
+/* 深色星空主题只用于登录/注册页；主应用是浅色壳（bg-subtle + bg-canvas）。 */
 body {
   background: #0a0e28;
   color: #f9fafb;

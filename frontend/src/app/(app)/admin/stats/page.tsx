@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { ShopHeader } from "@/components/ShopHeader";
 import { getToken } from "@/lib/auth";
 import { ORDER_STATUSES, money, shop, type Stats } from "@/lib/shop";
 
@@ -155,8 +154,7 @@ export default function AdminStatsPage() {
   const topProducts = stats?.top_products ?? [];
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <ShopHeader />
+    <div className="min-h-full">
 
       <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
         <div className="flex flex-wrap items-end justify-between gap-3">

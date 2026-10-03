@@ -9,7 +9,6 @@ import { useRouter } from "next/navigation";
 import { Loader2, Package, Search, Star } from "lucide-react";
 import { toast } from "sonner";
 
-import { ShopHeader } from "@/components/ShopHeader";
 import { getToken, getUser } from "@/lib/auth";
 import {
   commerceUserId,
@@ -221,8 +220,7 @@ export default function ShopPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <ShopHeader />
+    <div className="min-h-full">
 
       <main className="mx-auto max-w-6xl px-4 py-6">
         {/* 搜索 + 排序 */}

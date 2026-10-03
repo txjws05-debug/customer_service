@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { ShopHeader } from "@/components/ShopHeader";
 import { getToken, getUser } from "@/lib/auth";
 import {
   AFTER_SALE_STATUS_LABEL,
@@ -587,8 +586,7 @@ export default function OrderDetailPage({
   const discount = order?.discount_amount ?? "0";
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <ShopHeader />
+    <div className="min-h-full">
 
       <main className="mx-auto max-w-4xl px-4 py-6">
         <Link
