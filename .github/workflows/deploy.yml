@@ -42,10 +42,26 @@ jobs:
       - name: 运行单元测试
         run: uv run --locked pytest -q
 
-  # ---------- 1b. 电商中台：单测（业务规则/算钱/状态机） ----------
+  # ---------- 1b. 电商中台：单测 + 交易链路集成测试 ----------
   ecommerce-verify:
     name: verify ecommerce
     runs-on: ubuntu-latest
+    # 交易链路必须跑在真实 PostgreSQL 上：库存行锁（SELECT ... FOR UPDATE）、
+    # Numeric 金额、JSON 列在 SQLite 上验证不了
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cs
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: postgres
+        ports:
+          - 55433:5432
+        options: >-
+          --health-cmd "pg_isready -U cs"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: ecommerce-service-backend
@@ -56,10 +72,18 @@ jobs:
           enable-cache: true
       - name: 安装依赖（locked：uv.lock 与 pyproject 不一致则直接失败）
         run: uv sync --locked
-      - name: 运行单元测试
-        # 运费/优惠券/实付金额/积分/订单与售后状态机都在这批用例里钉死，
-        # 交易链路一旦算错钱会在这里直接红
-        run: uv run --locked pytest -q
+      - name: 运行单元测试与集成测试
+        env:
+          TEST_ADMIN_DATABASE_URL: postgresql+psycopg2://cs:test@127.0.0.1:55433/postgres
+        run: |
+          set -o pipefail
+          uv run --locked pytest -q -rs | tee /tmp/pytest.log
+          # 集成测试依赖 services.postgres：出现 skip 说明库没连上，
+          # 那样「交易链路通过」就是假的，必须让 CI 红
+          if grep -qE '[0-9]+ skipped' /tmp/pytest.log; then
+            echo "::error::有测试被跳过——交易链路集成测试必须在真实 PostgreSQL 上运行"
+            exit 1
+          fi
 
   # ---------- 2. 部署脚本预检：在云端验证 bootstrap/deploy 的密码同步逻辑 ----------
   deploy-scripts-verify:
