@@ -13,7 +13,8 @@ import os
 import uvicorn
 
 from app.config import settings
-from app.init_data import create_tables, seed_if_empty
+from app.init_data import create_tables, ensure_columns, seed_if_empty
+from app.seed_shop import seed_shop_if_empty
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,11 +24,16 @@ logger = logging.getLogger("ecommerce.main")
 
 
 def bootstrap() -> None:
-    """建表 + 首次启动写入演示数据。"""
+    """建表 + 轻量迁移 + 演示数据初始化。"""
     logger.info("正在初始化数据库: %s", settings.database_url.split("@")[-1])
     create_tables()
+    # 已有库需要补新列（create_all 不会改已存在的表）
+    ensure_columns()
     if settings.seed_on_startup:
+        # 全量演示数据（仅空库）
         seed_if_empty()
+        # 交易域增量数据（已有库也能补种，幂等）
+        seed_shop_if_empty()
 
 
 def main() -> None:

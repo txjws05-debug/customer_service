@@ -42,6 +42,25 @@ jobs:
       - name: 运行单元测试
         run: uv run --locked pytest -q
 
+  # ---------- 1b. 电商中台：单测（业务规则/算钱/状态机） ----------
+  ecommerce-verify:
+    name: verify ecommerce
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ecommerce-service-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: 安装依赖（locked：uv.lock 与 pyproject 不一致则直接失败）
+        run: uv sync --locked
+      - name: 运行单元测试
+        # 运费/优惠券/实付金额/积分/订单与售后状态机都在这批用例里钉死，
+        # 交易链路一旦算错钱会在这里直接红
+        run: uv run --locked pytest -q
+
   # ---------- 2. 部署脚本预检：在云端验证 bootstrap/deploy 的密码同步逻辑 ----------
   deploy-scripts-verify:
     name: verify deploy scripts

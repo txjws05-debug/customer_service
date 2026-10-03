@@ -11,5 +11,17 @@ dependencies = [
     "cryptography>=46.0.7",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+# tests/ 下的用例要从仓库里的 app.* 导入，必须把项目根加进 sys.path
+# （与客服端同一处坑：不加会在 CI 里报 ModuleNotFoundError: No module named 'app'）
+testpaths = ["tests"]
+pythonpath = ["."]
+

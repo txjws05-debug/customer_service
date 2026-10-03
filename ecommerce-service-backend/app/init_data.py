@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
 from app import models
@@ -26,6 +26,49 @@ logger = logging.getLogger("ecommerce.init")
 def create_tables() -> None:
     models.Base.metadata.create_all(bind=engine)
     logger.info("数据表已就绪: %s", ", ".join(inspect(engine).get_table_names()))
+
+
+# ---------------------------------------------------------------- 轻量迁移
+# 为什么不用 Alembic：本项目只有 PG 一个库、单人维护、部署即启动，
+# 引入迁移框架的收益不抵成本。但 create_all 只建「新表」，不会给已存在的表
+# 加列 —— 而线上库早就有 users/products/orders 了，所以必须自己补列。
+# 全部写成幂等的 ADD COLUMN IF NOT EXISTS，重复启动无副作用。
+_NEW_COLUMNS: list[tuple[str, str, str]] = [
+    # 用户：会员标记与积分
+    ("users", "is_plus", "BOOLEAN NOT NULL DEFAULT false"),
+    ("users", "points", "INTEGER NOT NULL DEFAULT 0"),
+    ("users", "growth", "INTEGER NOT NULL DEFAULT 0"),
+    # 商品：类目 / 品牌 / 上下架 / 评价与销量聚合
+    ("products", "category_id", "INTEGER REFERENCES categories(id)"),
+    ("products", "brand", "VARCHAR(64)"),
+    ("products", "status", "VARCHAR(16) DEFAULT '在售'"),
+    ("products", "rating_avg", "NUMERIC(3,2) DEFAULT 0"),
+    ("products", "rating_count", "INTEGER DEFAULT 0"),
+    ("products", "sales_count", "INTEGER DEFAULT 0"),
+    # 订单：优惠 / 运费 / 实付 / 地址 / 各状态时间戳
+    ("orders", "discount_amount", "NUMERIC(10,2) DEFAULT 0"),
+    ("orders", "freight_amount", "NUMERIC(10,2) DEFAULT 0"),
+    ("orders", "pay_amount", "NUMERIC(10,2)"),
+    ("orders", "address_id", "INTEGER REFERENCES addresses(id)"),
+    ("orders", "paid_at", "TIMESTAMP"),
+    ("orders", "shipped_at", "TIMESTAMP"),
+    ("orders", "received_at", "TIMESTAMP"),
+    ("orders", "close_reason", "VARCHAR(128)"),
+    # 订单明细：SKU 与规格快照
+    ("order_items", "sku_id", "INTEGER REFERENCES product_skus(id)"),
+    ("order_items", "spec_snapshot", "VARCHAR(255)"),
+]
+
+
+def ensure_columns() -> None:
+    """给已存在的表补上新列（幂等）。"""
+    with engine.begin() as conn:
+        for table, column, ddl in _NEW_COLUMNS:
+            conn.execute(text(
+                f"ALTER TABLE IF EXISTS {table} "
+                f"ADD COLUMN IF NOT EXISTS {column} {ddl}"
+            ))
+    logger.info("轻量迁移完成：检查 %d 个列定义（已存在则跳过）", len(_NEW_COLUMNS))
 
 
 def seed_if_empty() -> None:
