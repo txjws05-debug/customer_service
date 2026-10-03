@@ -8,6 +8,28 @@ body {
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
 }
 
+/* 表单控件的兜底文字色。
+   本项目是「深色 body + 局部浅色容器」的混搭：一旦某个输入框放在 bg-white
+   之类的浅色容器里又忘了写文字颜色，就会继承 body 的近白色 → 白字白底、
+   输入的内容完全看不见（线上真实踩过）。
+
+   必须放在 @layer base 里：Tailwind v4 的 utilities 在 @layer utilities，
+   而不在任何 layer 里的样式优先级高于所有 layer —— 若写在 layer 外面，
+   它会盖掉登录页的 text-white，把深色底的登录框变成深字深底。
+   放进 base 后：优先于继承来的 body 颜色，又低于显式的 text-* 类。 */
+@layer base {
+  input,
+  textarea,
+  select {
+    color: #0f172a;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: #94a3b8;
+  }
+}
+
 /* 登录页深空背景：深蓝 → 靛蓝 → 淡紫的径向渐变 */
 .bg-deep-space {
   background:

@@ -369,7 +369,9 @@ export default function ChatPage() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
               placeholder="输入您的问题…"
-              className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none transition focus:border-indigo-400"
+              // 必须显式写文字色：这个输入框在 bg-white 上，而全局 body 的
+              // color 是近白色（深色星空主题），不写就会「白字白底」看不见输入内容
+              className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-indigo-400"
             />
             {loading ? (
               <button
