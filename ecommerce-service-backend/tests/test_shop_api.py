@@ -40,21 +40,6 @@ def _clear_cart(client, user_id: str) -> None:
         client.delete(f"/shop/users/{user_id}/cart/{item['item_id']}")
 
 
-def _ship_order(db, order_id: str) -> None:
-    """模拟运营端发货：待发货 → 待揽收 → 运输中 → 待收货。"""
-    order = db.scalar(select(models.Order).filter(models.Order.order_id == order_id))
-    assert order is not None
-    order.status = rules.STATUS_PENDING_RECEIVE
-    order.status_desc = rules.describe(rules.STATUS_PENDING_RECEIVE)
-    order.shipped_at = rules.now()
-    db.add(models.LogisticsRecord(
-        order_id=order.id, logistics_company="顺丰速运",
-        tracking_number=f"SF{order.id:010d}", status="派送中",
-        status_desc="快件已到达派送站点。", updated_at=rules.now(),
-    ))
-    db.commit()
-
-
 # ============================================================ 商品与搜索
 def test_categories_and_product_search(client):
     categories = data_of(client.get("/shop/categories"))
@@ -152,7 +137,7 @@ def test_preview_with_empty_cart_is_rejected(client):
 
 
 # ============================================================ 完整交易闭环
-def test_full_purchase_flow(client, db):
+def test_full_purchase_flow(client, db, ship_order):
     sku_code = "SKU10005-01"
     _clear_cart(client, "u1003")
     stock_before = _stock(db, sku_code)
@@ -185,7 +170,7 @@ def test_full_purchase_flow(client, db):
     assert "无法支付" in again.json()["message"]
 
     # 5) 运营端发货（本切片直接改库）→ 用户确认收货
-    _ship_order(db, order_id)
+    ship_order(order_id)
     points_before = db.scalar(
         select(models.User.points).filter(models.User.user_id == "u1003"))
 

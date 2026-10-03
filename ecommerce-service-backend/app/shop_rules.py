@@ -166,6 +166,7 @@ def compute_pay_amount(goods_amount: Decimal, discount: Decimal, freight: Decima
 POINTS_PER_YUAN = 1          # 普通会员：每实付 1 元得 1 积分
 POINTS_PER_YUAN_PLUS = 2     # PLUS 会员双倍
 POINTS_PER_LEVEL = 1000      # 每 1000 积分一级，用于前端展示「还差多少」
+POINTS_PER_REVIEW = 10       # 评价奖励积分（每条）
 
 
 def calc_points(pay_amount: Decimal, is_plus: bool = False) -> int:

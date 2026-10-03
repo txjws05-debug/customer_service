@@ -84,6 +84,34 @@ def db(prepared_database: str):
         session.close()
 
 
+@pytest.fixture()
+def ship_order(db):
+    """模拟运营端发货：待发货 → 待收货，并写一条物流记录。
+
+    真正的发货接口属于运营端（admin_api，下一切片）。在用户侧用例里
+    需要一个「已经发货」的订单，就先用它推进状态。
+    """
+    from app import models
+    from app import shop_rules as rules
+
+    def _ship(order_id: str) -> None:
+        from sqlalchemy import select
+
+        order = db.scalar(select(models.Order).filter(models.Order.order_id == order_id))
+        assert order is not None, f"订单 {order_id} 不存在"
+        order.status = rules.STATUS_PENDING_RECEIVE
+        order.status_desc = rules.describe(rules.STATUS_PENDING_RECEIVE)
+        order.shipped_at = rules.now()
+        db.add(models.LogisticsRecord(
+            order_id=order.id, logistics_company="顺丰速运",
+            tracking_number=f"SF{order.id:010d}", status="派送中",
+            status_desc="快件已到达派送站点。", updated_at=rules.now(),
+        ))
+        db.commit()
+
+    return _ship
+
+
 def data_of(response) -> dict:
     """取出 ApiResponse 信封里的 data，顺便断言请求成功。"""
     assert response.status_code == 200, f"{response.status_code}: {response.text}"

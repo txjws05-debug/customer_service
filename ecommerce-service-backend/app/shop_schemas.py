@@ -306,3 +306,84 @@ class PointsData(BaseModel):
     growth: int
     next_level_points: int
     ledger: list[PointsLogData]
+
+
+# ---------------------------------------------------------------- 售后工单
+class AfterSaleCreateRequest(BaseModel):
+    user_id: str
+    type: str = Field(description="refund_only（仅退款）/ return_refund（退货退款）")
+    reason: str = Field(min_length=2, max_length=255)
+    evidence: list[str] = Field(default_factory=list, description="凭证图片 URL 列表")
+    refund_amount: Decimal | None = Field(
+        default=None, description="不传则默认按订单实付全额退款")
+
+
+class AfterSaleReturnRequest(BaseModel):
+    tracking_number: str = Field(min_length=4, max_length=64)
+    company: str = Field(default="顺丰速运", max_length=64)
+
+
+class AfterSaleTicketData(BaseModel):
+    ticket_no: str
+    order_id: str
+    type: str
+    type_desc: str
+    status: str
+    status_desc: str
+    reason: str
+    evidence: list[str]
+    refund_amount: Decimal
+    remark: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    can_cancel: bool = False
+    can_return: bool = False
+
+
+class AfterSaleListData(BaseModel):
+    user_id: str
+    total: int
+    tickets: list[AfterSaleTicketData]
+
+
+# ---------------------------------------------------------------- 评价
+class ReviewItemInput(BaseModel):
+    product_id: str
+    rating: int = Field(ge=1, le=5)
+    content: str = Field(min_length=1, max_length=1000)
+    images: list[str] = Field(default_factory=list)
+
+
+class ReviewCreateRequest(BaseModel):
+    user_id: str
+    items: list[ReviewItemInput] = Field(min_length=1)
+
+
+class ReviewAppendRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=1000)
+
+
+class ReviewReplyRequest(BaseModel):
+    reply: str = Field(min_length=1, max_length=1000)
+
+
+class ReviewData(BaseModel):
+    id: int
+    order_id: str
+    product_id: str
+    rating: int
+    content: str
+    images: list[str]
+    reply: str | None = None
+    append_content: str | None = None
+    nickname: str
+    spec_text: str | None = None
+    created_at: datetime
+
+
+class ReviewListData(BaseModel):
+    product_id: str | None = None
+    total: int
+    rating_avg: Decimal
+    rating_count: int
+    reviews: list[ReviewData]

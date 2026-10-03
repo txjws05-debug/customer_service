@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.api import router
+from app.shop_after_sale_api import router as shop_after_sale_router
 from app.shop_api import router as shop_router
 from app.shop_service import ShopError
 
@@ -49,6 +50,14 @@ openapi_tags = [
         "name": "交易-订单",
         "description": "下单、支付、取消、确认收货与订单查询（含状态机）。",
     },
+    {
+        "name": "交易-售后",
+        "description": "售后工单：仅退款/退货退款的状态机流程。",
+    },
+    {
+        "name": "交易-评价",
+        "description": "订单评价、追评与商品评价聚合。",
+    },
 ]
 
 
@@ -66,6 +75,7 @@ app = FastAPI(
 app.include_router(router)
 # 交易域独立命名空间：既有只读接口的路径与响应结构一概不动
 app.include_router(shop_router, prefix="/shop")
+app.include_router(shop_after_sale_router, prefix="/shop")
 
 
 @app.exception_handler(ShopError)

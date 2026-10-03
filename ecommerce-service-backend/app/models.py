@@ -419,3 +419,4 @@ class Review(Base):
 
     product: Mapped[Product] = relationship()
     user: Mapped[User] = relationship()
+    order: Mapped[Order] = relationship()
