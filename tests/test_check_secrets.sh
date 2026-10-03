@@ -47,12 +47,14 @@ if run EMBEDDING_BASE_URL='https://x/v1' EMBEDDING_MODEL='m' \
 fi
 echo "   OK"
 
-echo "6) 长度异常（118 字符）必须判失败"
-long_key="sk-$(printf 'a%.0s' {1..115})"
-if run EMBEDDING_BASE_URL='https://x/v1' EMBEDDING_MODEL='m' \
-     EMBEDDING_API_KEY="$long_key" >/dev/null 2>&1; then
-  fail "超长 key 竟然通过了"
-fi
+echo "6) 长 key 必须放行（回归：曾因假设「约 35 个字符」把有效 key 拦住）"
+# 线上真实情况：一把可用的百炼 key 是 117 个字符，curl 返回 200。
+# 当初按「约 35」加了长度上限，结果直接拦下部署，白卡了好几轮。
+long_key="sk-$(printf 'a%.0s' {1..114})"
+out="$(run EMBEDDING_BASE_URL='https://x/v1' EMBEDDING_MODEL='m' \
+           EMBEDDING_API_KEY="$long_key")" \
+  || fail "117 个字符的 key 被误判为错误（长度不该作为判据）"
+echo "$out" | grep -q '形态正常' || fail "长 key 应被判为形态正常"
 echo "   OK"
 
 echo "7) 任何情况下都不能把值本身打印出来"

@@ -37,7 +37,9 @@ jobs:
         run: |
           bash deploy/check-secrets.sh
           echo
-          echo "对照标准："
-          echo "  真实百炼 key  ≈ 35 个字符、纯 ASCII、以 sk- 开头、不含空白"
-          echo "  中文占位符     = 15 个字符、含非 ASCII"
-          echo "  未配置/为空    = 本次 run 拿不到这个 Secret"
+          echo "判据说明（只看「必然错」的形态，不猜长度）："
+          echo "  未配置/为空    = 本次 run 拿不到这个 Secret（GitHub 允许保存空值）"
+          echo "  含非 ASCII     = 多半填的是配置文档里的中文占位符"
+          echo "  含空白/换行    = 多半把整行配置或命令一起粘了进来"
+          echo "  长度不作判据   = 各家 key 长度不固定（百炼的就可能是 117 个字符）；"
+          echo "                   想验证 key 是否可用，用 curl 看返回码，那才是事实。"
