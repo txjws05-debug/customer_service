@@ -258,7 +258,7 @@ export default function CartPage() {
             <Package size={40} className="mx-auto mb-3 text-slate-300" />
             <p className="text-sm text-slate-500">购物车还是空的</p>
             <Link
-              href="/shop"
+              href="/mall"
               className="mt-3 inline-block rounded-lg bg-indigo-500 px-4 py-2 text-sm text-white transition hover:bg-indigo-600"
             >
               去商城逛逛
@@ -313,7 +313,7 @@ export default function CartPage() {
 
                     <div className="flex flex-1 flex-col gap-1">
                       <Link
-                        href={`/shop/${item.product_id}`}
+                        href={`/mall/${item.product_id}`}
                         className="line-clamp-2 text-sm font-medium text-slate-800 transition hover:text-indigo-600"
                       >
                         {item.title}

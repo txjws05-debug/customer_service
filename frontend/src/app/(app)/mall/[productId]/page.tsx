@@ -211,7 +211,7 @@ export default function ProductDetailPage({
 
       <main className="mx-auto max-w-6xl px-4 py-6">
         <Link
-          href="/shop"
+          href="/mall"
           className="inline-flex items-center gap-1 text-sm text-slate-500 transition hover:text-indigo-600"
         >
           <ArrowLeft size={15} />
@@ -228,7 +228,7 @@ export default function ProductDetailPage({
             <Package size={40} className="mx-auto mb-3 text-slate-300" />
             <p className="text-sm text-slate-600">商品不存在或已下架</p>
             <Link
-              href="/shop"
+              href="/mall"
               className="mt-3 inline-block text-sm text-indigo-600 underline"
             >
               回商城看看别的商品

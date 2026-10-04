@@ -68,7 +68,7 @@ function ProductCard({
 
   return (
     <Link
-      href={`/shop/${item.product_id}`}
+      href={`/mall/${item.product_id}`}
       className="group flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:border-indigo-300 hover:shadow-sm"
     >
       <div className="flex h-40 items-center justify-center overflow-hidden bg-slate-100">

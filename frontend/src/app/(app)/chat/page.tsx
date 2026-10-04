@@ -352,7 +352,7 @@ export default function ChatPage() {
               发送我的订单
             </button>
             <Link
-              href="/shop"
+              href="/mall"
               className="flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 transition hover:border-indigo-300 hover:text-indigo-600"
             >
               <ShoppingBag size={13} />

@@ -25,7 +25,7 @@ interface NavItem {
   name: string;
   href: string;
   icon: LucideIcon;
-  /** 精确匹配（否则 /shop 会一直高亮，因为所有页面都以它开头） */
+  /** 精确匹配（否则 /mall 会一直高亮，因为所有页面都以它开头） */
   exact?: boolean;
 }
 
@@ -37,7 +37,7 @@ interface NavSection {
 const NAV_SECTIONS: NavSection[] = [
   {
     items: [
-      { name: "商城", href: "/shop", icon: Store },
+      { name: "商城", href: "/mall", icon: Store },
       { name: "购物车", href: "/cart", icon: ShoppingCart },
     ],
   },

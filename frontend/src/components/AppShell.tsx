@@ -17,7 +17,7 @@ import { commerceUserId } from "@/lib/shop";
 
 // 顶栏标题按路径取，页面本身不需要再声明标题
 const TITLES: Record<string, string> = {
-  "/shop": "商城",
+  "/mall": "商城",
   "/cart": "购物车",
   "/orders": "我的订单",
   "/me": "优惠券与积分",
@@ -31,7 +31,7 @@ const TITLES: Record<string, string> = {
 function titleFor(pathname: string): string {
   if (TITLES[pathname]) return TITLES[pathname];
   if (pathname.startsWith("/orders/")) return "订单详情";
-  if (pathname.startsWith("/shop/")) return "商品详情";
+  if (pathname.startsWith("/mall/")) return "商品详情";
   return "";
 }
 

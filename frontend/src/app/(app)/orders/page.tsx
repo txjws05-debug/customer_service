@@ -214,7 +214,7 @@ export default function OrdersPage() {
             <Package size={40} className="mx-auto mb-3 text-slate-300" />
             <p className="text-sm text-slate-500">还没有订单，去商城逛逛</p>
             <Link
-              href="/shop"
+              href="/mall"
               className="mt-4 inline-block rounded-lg bg-indigo-500 px-4 py-2 text-sm text-white transition hover:bg-indigo-600"
             >
               去商城逛逛
