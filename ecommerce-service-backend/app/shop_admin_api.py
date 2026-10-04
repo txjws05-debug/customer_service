@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app import admin_service as admin
 from app import after_sale_service as after_sale
+from app import cache
 from app.database import get_db
 from app.schemas import ApiResponse
 from app.shop_schemas import (
@@ -152,3 +153,17 @@ def grant_coupon(code: str, payload: CouponGrantRequest,
             summary="经营看板：GMV/订单分布/售后率/券核销/积分/热销榜/低库存")
 def stats(db: Session = Depends(get_db)):
     return _wrap(admin.stats(db))
+
+
+@router.get("/cache-stats", response_model=ApiResponse, tags=["运营-看板"],
+            summary="商品缓存命中率（Redis 只加速读；未启用时命中率为 0）")
+def cache_stats():
+    # 用来对比「加缓存前后」的差异，也方便把真实数字写进文档
+    return _wrap(cache.stats())
+
+
+@router.post("/cache-stats/reset", response_model=ApiResponse, tags=["运营-看板"],
+             summary="清零缓存计数（压测前后对比用）")
+def reset_cache_stats():
+    cache.reset_stats()
+    return _wrap(cache.stats())

@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app import cache
 from app.api import router
 from app.shop_admin_api import router as shop_admin_router
 from app.shop_after_sale_api import router as shop_after_sale_router
 from app.shop_api import router as shop_router
 from app.shop_service import ShopError
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 商品缓存是可选能力：没配 REDIS_URL、或 Redis 连不上，都只是「没有缓存」，
+    # 服务照常启动并直连 PostgreSQL —— 缓存永远不能成为可用性的单点。
+    cache.configure_from_settings()
+    yield
 
 
 openapi_tags = [
@@ -88,9 +99,11 @@ app = FastAPI(
     description=(
         "为 atguigu 客服项目提供订单、物流、商品与订单操作能力的示例电商服务。\n\n"
         "- 根路径：既有只读接口（客服 Agent 在用，保持兼容）\n"
-        "- `/shop/*`：交易域接口（购物车、下单、支付、收货、优惠券、积分）"
+        "- `/shop/*`：交易域接口（购物车、下单、支付、收货、优惠券、积分）\n\n"
+        "PostgreSQL 是唯一事实来源；可选的 Redis 只用于加速商品读路径。"
     ),
     openapi_tags=openapi_tags,
+    lifespan=lifespan,
 )
 
 app.include_router(router)

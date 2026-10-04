@@ -117,11 +117,45 @@ cd frontend && npm install && npm run dev          # :3000
 商品 6 款（iPhone 15 Pro、小米电热水壶、暖宝宝、Apple Watch S9、美的空气炸锅、
 罗技 MX Master 3S），共 10 个 SKU。
 
+## 并发与性能（有实测数字）
+
+### 并发下单：行锁保证不超卖
+
+10 个并发请求抢同一个 SKU 的 3 件库存（`scripts/load_test_orders.py`）：
+
+| 指标 | 结果 |
+| --- | --- |
+| 成功下单 | 3 |
+| 因库存不足被拒（HTTP 409） | 7 |
+| 最终库存 | 0（绝不为负） |
+
+**这里踩过一个很典型的坑，值得单独记下来**：代码里本来就有 `SELECT ... FOR UPDATE`，
+但压测显示 10 个并发**全部下单成功、库存只减了 1** —— 典型的丢失更新。
+根因是 `get_sku_by_code()` 已经把这些 SKU 读进了 SQLAlchemy 的 identity map，
+而 `with_for_update()` 返回的是**同一个对象、属性不会被刷新**：行锁住了，用的却是旧库存。
+修法是给加锁查询加 `execution_options(populate_existing=True)`，强制用锁内读到的值覆盖。
+`tests/test_order_concurrency.py`（修复前会红）与压测脚本现在守着这条结论。
+
+### 商品读路径：可选 Redis 缓存
+
+PostgreSQL 始终是唯一事实来源，Redis 只加速读；**库存这类强一致字段永远不进缓存**
+（否则会出现「页面显示有货、下单却提示库存不足」）。同机、20 并发、400 次请求：
+
+| 指标 | 直连 PostgreSQL | 开启 Redis 缓存 |
+| --- | --- | --- |
+| 吞吐 | 350.9 req/s | 435.6 req/s |
+| 平均延迟 | 56 ms | 45 ms |
+| P50 | 54 ms | 41 ms |
+| 缓存命中率 | — | 99.0%（396/400） |
+
+数据量小的时候收益有限（省掉的是每次请求的 2~3 次 SQL），但命中率与延迟的趋势是明确的；
+而且**开启缓存后「并发不超卖」的结论不变**。复现步骤见中台 README。
+
 ## 测试与验证
 
 ```bash
-uv run --locked pytest -q                       # 客服 Agent：104 个用例
-cd ecommerce-service-backend && uv run --locked pytest -q   # 中台：19 规则 + 35 真库集成
+uv run --locked pytest -q                       # 客服 Agent：106 个用例
+cd ecommerce-service-backend && uv run --locked pytest -q   # 中台：63 个用例（19 规则 + 44 真库集成）
 cd frontend && npx tsc --noEmit && npm run build
 ```
 
@@ -133,6 +167,12 @@ cd frontend && npx tsc --noEmit && npm run build
 
 ```bash
 python scripts/e2e_shop_flow.py --base-url http://127.0.0.1:18081 --user u1002
+```
+
+- 压测（商品读路径吞吐/分位延迟 + 并发抢购是否超卖）：
+
+```bash
+python scripts/load_test_orders.py --base-url http://127.0.0.1:18081 --label "无缓存"
 ```
 
 ## 目录结构

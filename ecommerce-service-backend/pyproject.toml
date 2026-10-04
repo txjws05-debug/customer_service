@@ -9,6 +9,7 @@ dependencies = [
     "sqlalchemy>=2.0.38",
     "psycopg2-binary>=2.9.9",
     "cryptography>=46.0.7",
+    "redis>=5.2.0",
 ]
 
 [dependency-groups]

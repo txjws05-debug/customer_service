@@ -17,6 +17,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
+from app import cache
 from app import models
 from app import shop_rules as rules
 from app.shop_schemas import (
@@ -85,6 +86,14 @@ def sku_to_data(sku: models.ProductSku) -> SkuData:
 
 # ============================================================ 商品与搜索
 def list_categories(db: Session) -> list[CategoryData]:
+    """类目 + 在售数量：只有运营改商品才会变 → catalog 缓存（TTL 10 分钟）。"""
+    cached = cache.cached_json(
+        "catalog", "categories", cache.TTL_CATALOG,
+        lambda: [c.model_dump(mode="json") for c in _load_categories(db)])
+    return [CategoryData.model_validate(item) for item in cached]
+
+
+def _load_categories(db: Session) -> list[CategoryData]:
     categories = db.scalars(select(models.Category).order_by(models.Category.sort)).all()
     result = []
     for category in categories:
@@ -126,6 +135,22 @@ def search_products(
     page = max(1, page)
     page_size = min(max(1, page_size), 50)
 
+    # 缓存 key 必须包含**全部**筛选参数：漏一个就会把「搜水壶」的结果
+    # 发给「搜耳机」的人（这类 bug 在缓存里特别隐蔽）。
+    key = (f"search:{keyword or ''}:{category_id or 0}:{min_price or ''}:"
+           f"{max_price or ''}:{sort}:{page}:{page_size}")
+    cached = cache.cached_json(
+        "dynamic", key, cache.TTL_DYNAMIC,
+        lambda: _load_product_list(
+            db, keyword, category_id, min_price, max_price, sort, page, page_size
+        ).model_dump(mode="json"))
+    return ProductListData.model_validate(cached)
+
+
+def _build_product_query(
+    db: Session, keyword: str | None, category_id: int | None,
+    min_price: Decimal | None, max_price: Decimal | None,
+):
     query = db.query(models.Product).filter(models.Product.status == "在售")
     if keyword:
         like = f"%{keyword.strip()}%"
@@ -137,7 +162,16 @@ def search_products(
         query = query.filter(models.Product.price >= min_price)
     if max_price is not None:
         query = query.filter(models.Product.price <= max_price)
+    return query
 
+
+def _load_product_list(
+    db: Session, keyword: str | None, category_id: int | None,
+    min_price: Decimal | None, max_price: Decimal | None,
+    sort: str, page: int, page_size: int,
+) -> ProductListData:
+    """真正的库查询。缓存未命中时调用；命中时完全不碰数据库。"""
+    query = _build_product_query(db, keyword, category_id, min_price, max_price)
     total = query.count()
     products = (
         query.options(joinedload(models.Product.category))
@@ -165,6 +199,24 @@ def _product_list_item(product: models.Product) -> ProductListItem:
 
 
 def product_detail(db: Session, product_id: str) -> ProductDetailData:
+    """商品详情 = 「缓存里的静态骨架」+「实时库存」。
+
+    静态部分（标题/描述/属性/品牌/类目/规格与价格）走 catalog 缓存；
+    库存是强一致数据，**永远不进缓存**，每次用一次轻量查询盖上去 ——
+    否则会出现「页面显示有货、下单却说库存不足」这种最讨人厌的错。
+    """
+    cached = cache.cached_json(
+        "catalog", f"product:{product_id}", cache.TTL_CATALOG,
+        lambda: _load_product_static(db, product_id))
+    detail = ProductDetailData.model_validate(cached)
+
+    live = _live_stocks(db, product_id)
+    for sku in detail.skus:
+        sku.stock = live.get(sku.sku_code, 0)
+    return detail
+
+
+def _load_product_static(db: Session, product_id: str) -> dict:
     product = db.scalar(
         select(models.Product)
         .options(joinedload(models.Product.category), joinedload(models.Product.skus))
@@ -174,7 +226,7 @@ def product_detail(db: Session, product_id: str) -> ProductDetailData:
         raise ShopError(f"商品 {product_id} 不存在。", 404)
     skus = [s for s in product.skus if s.status == "在售"]
     skus.sort(key=lambda s: s.id)
-    return ProductDetailData(
+    detail = ProductDetailData(
         product_id=product.product_id, title=product.title,
         description=product.description, cover_url=product.cover_url,
         category=product.category.name if product.category else None,
@@ -185,6 +237,19 @@ def product_detail(db: Session, product_id: str) -> ProductDetailData:
         attributes=product.attributes_json or {},
         skus=[sku_to_data(s) for s in skus],
     )
+    # 库存不写进缓存（写进去就会变成陈旧数据）
+    for sku in detail.skus:
+        sku.stock = 0
+    return detail.model_dump(mode="json")
+
+
+def _live_stocks(db: Session, product_id: str) -> dict[str, int]:
+    rows = db.execute(
+        select(models.ProductSku.sku_code, models.ProductSku.stock)
+        .join(models.Product, models.Product.id == models.ProductSku.product_id)
+        .filter(models.Product.product_id == product_id)
+    ).all()
+    return {sku_code: stock for sku_code, stock in rows}
 
 
 # ============================================================ 购物车
@@ -531,11 +596,18 @@ def create_order(
         cart_item_ids = [item.id for item in cart_items]
 
     # 行锁 + 校验库存：并发下单时不会超卖
+    #
+    # ⚠️ populate_existing 不能省：上面 get_sku_by_code / 购物车已经把这些 SKU
+    # 读进 Session 的 identity map 了，而 SQLAlchemy 默认**不会**用查询结果覆盖
+    # 已加载对象的属性 —— FOR UPDATE 只锁住了行，拿到的却还是旧库存。
+    # 后果是典型的丢失更新：10 个并发都读到 3、各自写回 2，10 单全成功而库存只减 1。
+    # tests/test_order_concurrency.py 与 scripts/load_test_orders.py 守的就是这个。
     sku_ids = [sku.id for sku, _ in lines]
     locked = {
         row.id: row
         for row in db.query(models.ProductSku)
         .filter(models.ProductSku.id.in_(sku_ids))
+        .execution_options(populate_existing=True)
         .with_for_update()
         .all()
     }
@@ -588,6 +660,8 @@ def create_order(
     clear_cart_items(db, user, cart_item_ids)
     _log_status(db, order, None, rules.STATUS_PENDING_PAY, "user", "创建订单")
     db.commit()
+    # 下单改了库存 → 商品列表里的「库存状态/销量」要作废（提交后尽力作废）
+    cache.bump("dynamic")
 
     return OrderCreatedData(
         order_id=order.order_id, status=order.status, status_desc=order.status_desc,
@@ -655,6 +729,8 @@ def cancel_order(db: Session, order_id: str, reason: str) -> OrderActionResult:
             sku = db.scalar(
                 select(models.ProductSku)
                 .filter(models.ProductSku.id == item.sku_id)
+                # 同上：必须强制刷新，否则拿到的可能是 identity map 里的旧库存
+                .execution_options(populate_existing=True)
                 .with_for_update()
             )
             if sku:
@@ -674,6 +750,7 @@ def cancel_order(db: Session, order_id: str, reason: str) -> OrderActionResult:
     order.close_reason = reason
     _log_status(db, order, from_status, order.status, "user", reason)
     db.commit()
+    cache.bump("dynamic")
     return OrderActionResult(
         order_id=order.order_id, status=order.status, status_desc=order.status_desc,
         pay_amount=order.payable,
@@ -704,6 +781,7 @@ def receive_order(db: Session, order_id: str) -> OrderActionResult:
         user.growth = (user.growth or 0) + earned_growth
 
     db.commit()
+    cache.bump("dynamic")
     return OrderActionResult(
         order_id=order.order_id, status=order.status, status_desc=order.status_desc,
         earned_points=earned, pay_amount=order.payable,
@@ -729,6 +807,8 @@ def auto_close_expired_orders(db: Session, user: models.User | None = None) -> i
                 sku = db.scalar(
                     select(models.ProductSku)
                     .filter(models.ProductSku.id == item.sku_id)
+                    # 同上：强制刷新，避免用 identity map 里的旧库存归还
+                    .execution_options(populate_existing=True)
                     .with_for_update()
                 )
                 if sku:
@@ -746,6 +826,7 @@ def auto_close_expired_orders(db: Session, user: models.User | None = None) -> i
         _log_status(db, order, from_status, order.status, "system", "超时未支付自动关闭")
     if expired:
         db.commit()
+        cache.bump("dynamic")
     return len(expired)
 
 

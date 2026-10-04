@@ -21,6 +21,11 @@ class Settings:
     app_host: str = os.getenv("APP_HOST", "0.0.0.0")
     app_port: int = int(os.getenv("APP_PORT", "18081"))
 
+    # 商品读路径的缓存（可选）：不配置就等同「没有缓存」，全部直连 PostgreSQL。
+    # 注意：PostgreSQL 始终是唯一事实来源 —— 缓存只加速读、绝不承接写，
+    # 而且库存这类强一致字段永远不进缓存（见 app/cache.py 的说明）。
+    redis_url: str | None = os.getenv("REDIS_URL")
+
     # 启动时若库为空则写入演示数据（便于课堂演示；置 false 可关闭）
     seed_on_startup: bool = _env_bool("SEED_ON_STARTUP", True)
 

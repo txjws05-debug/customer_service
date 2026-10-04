@@ -20,6 +20,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
+from app import cache
 from app import models
 from app import shop_rules as rules
 from app.shop_schemas import (
@@ -210,6 +211,8 @@ def complete_after_sale(
         ticket.remark = remark
     ticket.updated_at = rules.now()
     db.commit()
+    # 退货入库改了库存 → 商品列表里的库存状态作废
+    cache.bump("dynamic")
     db.refresh(ticket)
     return _ticket_to_data(ticket)
 
@@ -299,6 +302,8 @@ def create_reviews(
         ))
 
     db.commit()
+    # 评价改了商品评分聚合 → 列表/详情里的评分作废
+    cache.bump("dynamic")
     for review in created:
         db.refresh(review)
     return [_review_to_data(r) for r in created]

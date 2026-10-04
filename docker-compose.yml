@@ -37,6 +37,30 @@ services:
     networks: [backend]
 
   # ==================== 应用服务 ====================
+  redis:
+    # 商品读路径的缓存。丢了也不影响正确性（PostgreSQL 是唯一事实来源），
+    # 所以不落盘、限制内存、满了按 LRU 淘汰。
+    image: redis:7-alpine
+    container_name: cs-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 64mb
+      - --maxmemory-policy
+      - allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 5s
+    networks: [backend]
+
   ecommerce:
     # 电商中台：为客服 Agent 提供订单 / 物流 / 商品数据
     image: ${REGISTRY:-ghcr.io}/txjws05-debug/customer-service-ecommerce:${IMAGE_TAG:-latest}
@@ -51,10 +75,14 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: "18081"
       SEED_ON_STARTUP: "true"
+      REDIS_URL: redis://redis:6379/0
       TZ: Asia/Shanghai
     depends_on:
       postgres:
         condition: service_healthy
+      # 缓存不健康也要能启动（会自动降级为直连数据库）
+      redis:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18081/health',timeout=3).status==200 else 1)\""]
       interval: 15s

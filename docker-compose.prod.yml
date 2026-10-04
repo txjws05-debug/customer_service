@@ -53,16 +53,46 @@ services:
       APP_HOST: 0.0.0.0
       APP_PORT: "18081"
       SEED_ON_STARTUP: "true"
+      # 商品读路径的缓存。Redis 只是加速器：连不上或没配置都会自动降级为
+      # 直连 PostgreSQL（PostgreSQL 始终是唯一事实来源）。
+      REDIS_URL: redis://redis:6379/0
       TZ: Asia/Shanghai
     depends_on:
       postgres:
         condition: service_healthy
+      # 刻意用 service_started：缓存不健康也必须能启动，不能成为可用性单点
+      redis:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18081/health',timeout=3).status==200 else 1)\""]
       interval: 15s
       timeout: 8s
       retries: 8
       start_period: 30s
+    networks: [backend]
+
+  redis:
+    # 只当缓存用：不落盘、限制内存、满了按 LRU 淘汰。
+    # 数据全丢也不影响正确性 —— PostgreSQL 才是唯一事实来源。
+    image: redis:7-alpine
+    container_name: cs-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 64mb
+      - --maxmemory-policy
+      - allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 5s
     networks: [backend]
 
   backend:

@@ -118,6 +118,40 @@ python scripts/e2e_shop_flow.py --base-url http://127.0.0.1:18081 --user u1002
 （应被拒）→ 支付 → 运营端发货并推进 → 确认收货（得积分）→ 申请售后 → 看订单 →
 搜索商品；开头会先清空购物车、并动态挑一张可用券，因此可以反复执行。
 
+压测（读路径吞吐/分位延迟 + 并发抢购是否超卖）：
+
+```bash
+python scripts/load_test_orders.py --base-url http://127.0.0.1:18081 --label "无缓存"
+```
+
+## 缓存：Redis 只加速读，PostgreSQL 才是唯一事实来源
+
+配置 `REDIS_URL` 即启用，不配就是「没有缓存」（本地和 CI 都不配，跑得一样）。
+设计要点都在 `app/cache.py` 的模块注释里，这里只说结论：
+
+- **只缓存商品读路径**：类目、商品静态骨架（标题/描述/属性/品牌/规格与价格）、
+  搜索结果（TTL 600s / 600s / 30s）。
+- **库存永不进缓存**：商品详情缓存的是静态骨架，每次请求再用一次轻量查询把实时库存
+  盖上去。写进缓存就会出现「页面显示有货、下单提示库存不足」。
+- **作废用版本号而不是删 key**：`catalog`（运营改商品才变）与 `dynamic`（下单/评价/调库存
+  会变）各一个版本号，写操作 `INCR` 对应版本，旧 key 自然过期 —— 不需要枚举删除。
+- **Redis 挂了不影响服务**：连不上/报错都直接走库，连续失败还会熔断 30 秒，
+  避免每个请求都卡在连接超时上。启动时也**不依赖** Redis（compose 里是 `service_started`）。
+- 命中率可以从运营端看：`GET /shop/admin/cache-stats`（还有 `POST .../reset` 便于压测对比）。
+
+## 并发：不超卖的保证
+
+下单会先 `SELECT ... FOR UPDATE` 锁住涉及的 SKU 行，在锁内校验并扣减，同一个事务提交。
+
+⚠️ **加锁查询必须带 `execution_options(populate_existing=True)`**。原因是前面已经把这些
+SKU 读进 Session 的 identity map 了，而 SQLAlchemy 默认不会用查询结果覆盖已加载对象的
+属性 —— 那样 `FOR UPDATE` 只锁住了行、拿到的还是旧库存，压测会看到「10 个并发全部下单成功、
+库存只减 1」的丢失更新。`tests/test_order_concurrency.py` 就是为这个场景写的（修复前是红的）。
+
+另一种等价思路是改成原子的条件更新：
+`UPDATE product_skus SET stock = stock - :q WHERE id = :id AND stock >= :q`，
+再判断受影响行数是否为 1。
+
 ## 本地开发
 
 如果你本地装了 Python 和 PostgreSQL，也可以直接运行（需先创建 `commerce` 库）：

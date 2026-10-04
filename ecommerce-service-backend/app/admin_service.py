@@ -13,6 +13,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
+from app import cache
 from app import models
 from app import shop_rules as rules
 from app.shop_schemas import (
@@ -213,6 +214,8 @@ def update_stock(
         reason=payload.reason, order_id=None, created_at=rules.now(),
     ))
     db.commit()
+    # 库存变了 → 商品列表里的库存状态作废
+    cache.bump("dynamic")
     db.refresh(sku)
     return StockData(
         sku_code=sku.sku_code, product_id=product.product_id if product else "",
