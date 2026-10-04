@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "description": "RAG 检索质量评测集（golden set + badcase 基线）。每条给出用户真实会说的话和应当命中的知识条目；expected 为空表示『不该命中任何知识』（超纲问题应被 min_score 挡住，而不是硬扯一条）。",
+  "categories": {
+    "direct": "照文档标题问（易）",
+    "colloquial": "口语化/换个说法问（难，主要看召回）",
+    "policy": "问完整政策条款（应对应 policy-* 长文档）",
+    "out_of_scope": "知识库覆盖不到的问题（期望不命中任何条目）"
+  },
+  "cases": [
+    { "query": "退款多久到账？", "expected": ["faq-refund-eta"], "category": "direct" },
+    { "query": "怎么申请退款？", "expected": ["faq-refund-apply"], "category": "direct" },
+    { "query": "可以只退部分商品吗？", "expected": ["faq-refund-partial"], "category": "direct" },
+    { "query": "七天无理由退货的条件是什么？", "expected": ["faq-return-7days"], "category": "direct" },
+    { "query": "退货运费谁承担？", "expected": ["faq-return-freight"], "category": "direct" },
+    { "query": "下单后多久发货？", "expected": ["faq-shipping-time"], "category": "direct" },
+    { "query": "下单后可以修改收货地址吗？", "expected": ["faq-order-address"], "category": "direct" },
+    { "query": "怎么开发票？", "expected": ["faq-invoice"], "category": "direct" },
+    { "query": "怎么转人工客服？", "expected": ["faq-human-agent"], "category": "direct" },
+    { "query": "订单状态都有哪些？分别是什么意思？", "expected": ["faq-order-status-list"], "category": "direct" },
+
+    { "query": "钱什么时候退回来", "expected": ["faq-refund-eta"], "category": "colloquial" },
+    { "query": "我不想买了，怎么退钱", "expected": ["faq-refund-apply"], "category": "colloquial" },
+    { "query": "快递一直不动是怎么回事", "expected": ["faq-logistics-stale"], "category": "colloquial" },
+    { "query": "收货地址写错了能改吗", "expected": ["faq-order-address"], "category": "colloquial" },
+    { "query": "券怎么用不了", "expected": ["faq-coupon", "faq-coupon-howto"], "category": "colloquial" },
+    { "query": "新人券在哪领", "expected": ["faq-coupon-get"], "category": "colloquial" },
+    { "query": "东西坏了怎么办", "expected": ["faq-damaged"], "category": "colloquial" },
+    { "query": "是正品吗？有保修吗", "expected": ["faq-product-quality"], "category": "colloquial" },
+    { "query": "开会员划算吗", "expected": ["faq-plus-member"], "category": "colloquial" },
+    { "query": "多久要付款，忘了付会怎样", "expected": ["faq-pay-timeout"], "category": "colloquial" },
+    { "query": "积分能抵钱吗", "expected": ["faq-points-use"], "category": "colloquial" },
+    { "query": "晒单有奖吗", "expected": ["faq-review-reward"], "category": "colloquial" },
+    { "query": "只退款不退货是什么意思", "expected": ["faq-after-sale-types"], "category": "colloquial" },
+    { "query": "满多少包邮", "expected": ["faq-freight-rule"], "category": "colloquial" },
+
+    { "query": "能刷卡吗", "expected": ["faq-payment", "faq-pay-methods"], "category": "colloquial" },
+    { "query": "我要买这个怎么下单", "expected": ["faq-trade-howto"], "category": "colloquial" },
+    { "query": "退货怎么寄回去", "expected": ["faq-return-howto"], "category": "colloquial" },
+    { "query": "偏远地区能送到吗", "expected": ["faq-shipping-area"], "category": "colloquial" },
+    { "query": "订单能取消吗", "expected": ["faq-order-cancel"], "category": "colloquial" },
+
+    { "query": "完整的退款政策是什么", "expected": ["policy-refund"], "category": "policy" },
+    { "query": "退换货政策的完整条款", "expected": ["policy-return"], "category": "policy" },
+    { "query": "配送与物流政策怎么规定的", "expected": ["policy-shipping"], "category": "policy" },
+    { "query": "优惠券和促销的规则细则", "expected": ["policy-promotion"], "category": "policy" },
+    { "query": "会员权益规则全文", "expected": ["policy-member"], "category": "policy" },
+    { "query": "账号隐私是怎么保护的", "expected": ["policy-account-privacy"], "category": "policy" },
+    { "query": "出现纠纷怎么处理", "expected": ["policy-after-sale"], "category": "policy" },
+
+    { "query": "你们公司股票代码是多少", "expected": [], "category": "out_of_scope" },
+    { "query": "今天北京天气怎么样", "expected": [], "category": "out_of_scope" },
+    { "query": "帮我写一段 Python 快排代码", "expected": [], "category": "out_of_scope" },
+    { "query": "推荐一部好看的电影", "expected": [], "category": "out_of_scope" },
+    { "query": "怎么申请护照", "expected": [], "category": "out_of_scope" }
+  ]
+}

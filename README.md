@@ -117,6 +117,39 @@ cd frontend && npm install && npm run dev          # :3000
 商品 6 款（iPhone 15 Pro、小米电热水壶、暖宝宝、Apple Watch S9、美的空气炸锅、
 罗技 MX Master 3S），共 10 个 SKU。
 
+## RAG 检索评测（有实测数字）
+
+`ws/knowledge/eval.py` 把检索质量变成可对比的表：**41 条评测集**（直接问法 10 / 口语化改写 19 /
+政策条款 7 / 超纲 5），指标 Recall@k、MRR、超纲拒答率，并自动产出 badcase 清单。
+
+```bash
+python -m ws.knowledge.eval --sweep                # 离线可复现（不需要库/API，CI 用这个）
+python -m ws.knowledge.eval --backend db --sweep   # 真实 pgvector + 真实 embedding 后端
+```
+
+真实 pgvector + pg_trgm 上实测（用离线哈希向量；1 条用例 = 2.8pp，样本不大但方向明确）：
+
+| 配置 | Recall@1 | Recall@3 | MRR |
+| --- | --- | --- | --- |
+| 纯向量 | 91.7% | 100% | 0.949 |
+| 混合（similarity），字面分**不含**别名 | 94.4% | 100% | 0.968 |
+| 混合（similarity），字面分**含**别名 | 97.2% | 100% | 0.986 |
+| 混合（**word_similarity**），含别名 ← 现在的默认 | **100%** | 100% | **1.000** |
+
+两个由数据决定（而不是凭感觉）的改动：
+
+1. **别名参与字面分**（此前只参与向量化）：Recall@1 +2.8pp；
+2. **字面分口径换成 `word_similarity`**：再 +2.8pp —— 短问题 vs 长文档时 `similarity()`
+   会被长文档的 trigram 稀释得接近 0，而 `word_similarity()` 看的是问题里的词在文档中出现多少。
+
+评测顺手问出来的问题（这才是它最大的价值）：
+
+- **`min_score=0.05` 形同虚设**：正例 top1 分数 0.21~0.80、超纲问题 0.19~0.35，**两段分布重叠**。
+  门槛抬到 0.31 可把超纲拒答率从 20% 提到 80%，代价是 Recall@5 掉到 83% ——
+  所以**超纲问题必须靠意图识别 + 提示词兜底，光调分数门槛会两头不讨好**。
+- `pg_trgm` 缺失时混合检索会**静默退化成纯向量**（现在启动时会兜底创建该扩展并记录日志）。
+- badcase 清单会自动打印「期望哪条 / 实际返回哪几条（含分数）」，改检索前先看它。
+
 ## 并发与性能（有实测数字）
 
 ### 并发下单：行锁保证不超卖
@@ -154,7 +187,7 @@ PostgreSQL 始终是唯一事实来源，Redis 只加速读；**库存这类强�
 ## 测试与验证
 
 ```bash
-uv run --locked pytest -q                       # 客服 Agent：106 个用例
+uv run --locked pytest -q                       # 客服 Agent：113 个用例
 cd ecommerce-service-backend && uv run --locked pytest -q   # 中台：63 个用例（19 规则 + 44 真库集成）
 cd frontend && npx tsc --noEmit && npm run build
 ```

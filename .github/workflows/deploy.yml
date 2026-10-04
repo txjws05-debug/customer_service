@@ -420,6 +420,13 @@ jobs:
             # 于是直接在 Actions 日志里就能看到原因，不必登服务器翻容器日志。
             echo "==> 部署后自检：embedding 后端"
             docker exec cs-backend python -m ws.knowledge.reindex --probe
+
+            # 检索质量评测：把真实 pgvector + 真实 embedding 下的 Recall@k / MRR /
+            # 超纲拒答率打进 CI 日志（每次部署都能看到，换模型后能立刻发现回退）。
+            # 它是**观测**而不是门禁：失败只告警，不拦住已经成功的部署。
+            echo "==> 检索质量评测"
+            docker exec cs-backend python -m ws.knowledge.eval --backend db \
+              || echo "::warning title=检索评测未完成::评测脚本执行失败，部署本身不受影响"
         env:
           IMAGE_TAG: ${{ github.sha }}
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}

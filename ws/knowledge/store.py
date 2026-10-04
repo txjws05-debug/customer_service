@@ -38,6 +38,9 @@ class KnowledgeRow:
     content: str
     source: str
     embedding: list[float]
+    # 口语化别名词（空格分隔）。单独存一列而不是拼进 content：
+    # 它只该参与「打分」，不该出现在喂给 LLM 的正文里。
+    aliases: str = ""
 
 
 @dataclass
@@ -95,6 +98,21 @@ async def ensure_schema(dim: int) -> None:
                     "请用超级用户执行：CREATE EXTENSION vector;"
                     f"（原始错误：{exc}）") from exc
 
+        # pg_trgm 同样兜底建一次：缺了它，混合检索会**静默退化成纯向量**
+        # （只在启动日志里留一行提示），而字面分正是口语化改写的主要召回来源。
+        # pg_trgm 在 PG13+ 是 trusted extension，库属主即可创建。
+        result = await session.execute(text(
+            "SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'"))
+        if result.scalar_one_or_none() is None:
+            try:
+                await session.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+                await session.commit()
+                logger.info("已创建 pg_trgm 扩展（字面分可用）")
+            except Exception as exc:  # noqa: BLE001 - 只是降级，不拦截启动
+                logger.warning(
+                    "缺少 pg_trgm 扩展且当前用户无权创建，混合检索将退化为纯向量：%s",
+                    exc)
+
         # 已有表的向量维度
         result = await session.execute(text(
             "SELECT atttypmod FROM pg_attribute "
@@ -117,6 +135,12 @@ async def ensure_schema(dim: int) -> None:
                 embedding  vector({dim}) NOT NULL,
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
+        """))
+        # 别名列是后加的：老库里没有，用 ADD COLUMN IF NOT EXISTS 做增量演进
+        # （本项目不引入 Alembic，理由见 README「数据库演进」一节）
+        await session.execute(text("""
+            ALTER TABLE knowledge_chunks
+                ADD COLUMN IF NOT EXISTS aliases TEXT NOT NULL DEFAULT ''
         """))
         await session.execute(text("""
             CREATE UNIQUE INDEX IF NOT EXISTS ux_knowledge_chunks_doc
@@ -172,9 +196,9 @@ async def replace_all(rows: list[KnowledgeRow]) -> None:
             await session.execute(
                 text("""
                     INSERT INTO knowledge_chunks
-                        (doc_id, kind, title, content, source, embedding)
+                        (doc_id, kind, title, content, aliases, source, embedding)
                     VALUES
-                        (:doc_id, :kind, :title, :content, :source,
+                        (:doc_id, :kind, :title, :content, :aliases, :source,
                          CAST(:embedding AS vector))
                 """),
                 [
@@ -183,6 +207,7 @@ async def replace_all(rows: list[KnowledgeRow]) -> None:
                         "kind": row.kind,
                         "title": row.title,
                         "content": row.content,
+                        "aliases": row.aliases,
                         "source": row.source,
                         "embedding": vector_literal(row.embedding),
                     }
@@ -196,18 +221,40 @@ async def search(query_vector: list[float],
                  query_text: str,
                  kinds: list[str],
                  top_k: int | None = None,
-                 candidates: int | None = None) -> list[SearchHit]:
-    """混合检索：HNSW 召回候选 → 向量分 + 字面分加权排序。"""
+                 candidates: int | None = None,
+                 vector_weight: float | None = None,
+                 keyword_weight: float | None = None,
+                 keyword_mode: str | None = None,
+                 include_aliases: bool = True) -> list[SearchHit]:
+    """混合检索：HNSW 召回候选 → 向量分 + 字面分加权排序。
+
+    打分参数可覆盖，是为了让 `python -m ws.knowledge.eval --sweep` 在**同一套代码**上
+    对比不同配置 —— 公式写死就没法做前后对比，只能凭感觉调参。
+
+    字面分两种口径：
+    - `similarity()`：trigram 交集/并集，短问题 vs 长文档会被长文档稀释得接近 0；
+    - `word_similarity()`：按查询侧覆盖率算，知识库这种「短问长答」场景通常更合适。
+    别名（aliases）也参与字面分：用户很少照着标题提问，别名就是为这些说法准备的。
+    """
     top_k = top_k or settings.knowledge_top_k
     candidates = candidates or max(settings.knowledge_candidates, top_k)
+    vector_weight = _VECTOR_WEIGHT if vector_weight is None else vector_weight
+    keyword_weight = _KEYWORD_WEIGHT if keyword_weight is None else keyword_weight
+    keyword_mode = keyword_mode or settings.knowledge_keyword_mode
 
     async with database.session_factory() as session:
-        use_trgm = await _has_pg_trgm(session)
-        keyword_expr = (
-            "similarity(title || ' ' || content, :query_text)" if use_trgm else "0.0")
+        use_trgm = await _has_pg_trgm(session) and keyword_mode != "none"
+        scored_text = ("title || ' ' || aliases || ' ' || content" if include_aliases
+                       else "title || ' ' || content")
+        if not use_trgm:
+            keyword_expr = "0.0"
+        elif keyword_mode == "word_similarity":
+            keyword_expr = f"word_similarity(:query_text, {scored_text})"
+        else:
+            keyword_expr = f"similarity({scored_text}, :query_text)"
         sql = f"""
             WITH candidates AS (
-                SELECT id, doc_id, kind, title, content, source,
+                SELECT id, doc_id, kind, title, content, aliases, source,
                        embedding <=> CAST(:query_vector AS vector) AS distance
                 FROM knowledge_chunks
                 WHERE kind = ANY(CAST(:kinds AS text[]))
@@ -230,8 +277,8 @@ async def search(query_vector: list[float],
             "kinds": kinds,
             "candidate_limit": candidates,
             "top_k": top_k,
-            "vector_weight": _VECTOR_WEIGHT,
-            "keyword_weight": _KEYWORD_WEIGHT if use_trgm else 0.0,
+            "vector_weight": vector_weight,
+            "keyword_weight": keyword_weight if use_trgm else 0.0,
         })
         rows = result.mappings().all()
 

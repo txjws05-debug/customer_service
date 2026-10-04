@@ -90,6 +90,7 @@ async def ensure_index(force: bool = False) -> IndexResult:
                 kind=doc.kind,
                 title=doc.title,
                 content=doc.content,
+                aliases=doc.aliases,
                 source=doc.source,
                 embedding=vector,
             )

@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     knowledge_candidates: int = 20
     knowledge_top_k: int = 4
     knowledge_min_score: float = 0.05
+    # 字面分口径：similarity（trigram 交集/并集）| word_similarity（查询侧覆盖率）
+    # | none（纯向量）。默认 word_similarity 是评测结论：在 41 条评测集上
+    # Recall@1 97.2% → 100%、MRR 0.986 → 1.000（短问长答场景下 similarity 会被
+    # 长文档的 trigram 稀释）。复现：python -m ws.knowledge.eval --backend db --sweep
+    knowledge_keyword_mode: str = "word_similarity"
     # 启动时自动建表并建索引（幂等；失败只告警，不影响服务启动）
     knowledge_auto_index: bool = True
 
