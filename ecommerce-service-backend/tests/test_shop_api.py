@@ -68,6 +68,23 @@ def test_product_detail_lists_skus(client):
     assert detail["skus"][0]["spec"]["容量"] == "256GB"
 
 
+def test_product_covers_are_local_not_placeholder_urls(client):
+    """商品封面必须是随前端发布的本地占位图。
+
+    种子里原本写的是 https://example.com/images/*.jpg，浏览器只会显示碎图 ——
+    线上真实踩过，而且只有人到页面上看才发现。这里钉死后端返回的封面地址。
+    """
+    listed = data_of(client.get("/shop/products", params={"page_size": 50}))
+    bad = [
+        p["cover_url"] for p in listed["items"]
+        if p["cover_url"] and not p["cover_url"].startswith("/products/")
+    ]
+    assert not bad, f"商品封面不是本地占位图（页面会显示碎图）：{bad}"
+
+    detail = data_of(client.get("/shop/products/SKU10001"))
+    assert detail["cover_url"] == "/products/SKU10001.svg"
+
+
 # ============================================================ 购物车
 def test_cart_add_update_remove(client):
     # u1002 用低价商品，避免与其它用例抢库存

@@ -226,6 +226,13 @@ def _backfill_products(db: Session) -> None:
                 touched += 1
         if product.status is None:
             product.status = "在售"
+        # 商品封面：种子里原本是 https://example.com/images/*.jpg 这种假地址，
+        # 浏览器只会显示碎图。改成随前端一起发布的本地占位图
+        # （frontend/public/products/<id>.svg，由 scripts/gen_product_covers.py 生成）。
+        # 既判空也认 example.com，是为了把已经写进库里的老假地址一并修掉。
+        if not product.cover_url or "example.com" in product.cover_url:
+            product.cover_url = f"/products/{product.product_id}.svg"
+            touched += 1
         skus = [s for s in product.skus if s.status == "在售"]
         if skus:
             lowest = min(s.price for s in skus)

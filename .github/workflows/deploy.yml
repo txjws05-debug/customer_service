@@ -237,6 +237,10 @@ jobs:
           bash tests/test_check_secrets.sh
           bash tests/test_detect_changes.sh
 
+      - name: 校验商品封面占位图齐全
+        # 后端引用 /products/<id>.svg，图必须真的存在，否则页面上全是碎图
+        run: bash tests/test_product_covers.sh
+
   # ---------- 3. 前端：类型检查 + 生产构建 ----------
   frontend-verify:
     name: verify frontend
