@@ -63,7 +63,11 @@ class ChitchatHandler:
         cached = self._get_cached(key)
         if cached is not None:
             logger.info("Chitchat cache hit (stream)")
-            yield cached
+            # 缓存命中只该省掉「LLM 调用」，不该顺手把打字机效果也省掉。
+            # 原来这里是 `yield cached`（整段一次吐出），前端表现就是「一股脑蹦出来」，
+            # 和未命中时的逐字手感不一致 —— 用户会以为流式坏了。
+            async for piece in replay_cached(cached):
+                yield piece
             return
 
         parts: list[str] = []
@@ -94,3 +98,17 @@ class ChitchatHandler:
     def _put_cache(self, key: str, text: str) -> None:
         if text:
             self._cache[key] = (time.monotonic() + _CACHE_TTL, text)
+
+#: 缓存重放的切块大小与间隔：200 字 ≈ 0.2 秒，手感与真实流式一致，
+#: 但不需要任何 LLM 调用。抽成模块级函数是为了能单独测。
+CACHED_CHUNK_SIZE = 12
+CACHED_CHUNK_INTERVAL = 0.015
+
+
+async def replay_cached(text: str):
+    """把缓存的整段回答切块重放，保持和其它路径一致的打字机手感。"""
+    import asyncio
+
+    for start in range(0, len(text), CACHED_CHUNK_SIZE):
+        yield text[start:start + CACHED_CHUNK_SIZE]
+        await asyncio.sleep(CACHED_CHUNK_INTERVAL)
