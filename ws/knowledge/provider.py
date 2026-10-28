@@ -47,7 +47,7 @@ class ApiProductProvider(KnowledgeProvider):
                        state: DialogueState) -> list[KnowledgeChunk]:
         # 设计：页面中直接发送商品类型对象，执行当前这条线
         focused = state.share.focuse_object
-        if focused is None:
+        if getattr(focused, "type", "") != "product":
             raise ChatServiceError(
                 "请先在页面选择要咨询的商品，再向我提问。")
 
@@ -66,7 +66,7 @@ class ApiOrderProvider(KnowledgeProvider):
                        user_message: UserMessage,
                        state: DialogueState) -> list[KnowledgeChunk]:
         focused = state.share.focuse_object
-        if focused is None:
+        if getattr(focused, "type", "") != "order":
             raise ChatServiceError(
                 "请先在页面选择要咨询的订单，再向我提问。")
 
