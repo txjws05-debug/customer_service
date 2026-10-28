@@ -17,6 +17,7 @@ import uuid
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from ws import metrics
 from ws.utils.logging_config import (
     bind_trace_id,
     current_trace_id,
@@ -43,6 +44,10 @@ class TraceMiddleware(BaseHTTPMiddleware):
         token = bind_trace_id(incoming or new_trace_id())
         trace_id = current_trace_id()
         started = time.perf_counter()
+        path = request.url.path
+        record = path != "/metrics"
+        if record:
+            metrics.add_gauge("http_requests_in_flight", 1)
         try:
             response = await call_next(request)
         except Exception:
@@ -52,10 +57,18 @@ class TraceMiddleware(BaseHTTPMiddleware):
             reset_trace_id(token)
             raise
         cost_ms = (time.perf_counter() - started) * 1000
+        if record:
+            metrics.add_gauge("http_requests_in_flight", -1)
+            labels = {"method": request.method,
+                      "path": metrics.normalize_path(path),
+                      "status": str(response.status_code)}
+            metrics.inc("http_requests_total", labels)
+            metrics.observe("http_request_duration_seconds",
+                            cost_ms / 1000, {"path": labels["path"]})
         # 健康检查每 15 秒一次，进日志只会把真正的问题埋掉
-        if request.url.path != "/health":
+        if path != "/health":
             logger.info("%s %s -> %s 耗时%.0fms", request.method,
-                        request.url.path, response.status_code, cost_ms)
+                        path, response.status_code, cost_ms)
         response.headers["X-Request-Id"] = trace_id
         reset_trace_id(token)
         return response

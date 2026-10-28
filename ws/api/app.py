@@ -1,7 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+import hmac
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import PlainTextResponse
+
+from ws import metrics
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -56,6 +61,22 @@ app = FastAPI(
 # 最后添加 = 最外层：先绑 trace_id，再进业务与鉴权，
 # 这样连 401/500 的日志也带得上 id
 app.add_middleware(TraceMiddleware)
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics_endpoint(request: Request):
+    """Prometheus 抓取端点。
+
+    只在内网暴露（Caddy 不转发 /metrics），且可选用 Bearer 令牌再上一道锁 ——
+    指标里有路径、错误率、耗时分布，等于系统的运行画像。
+    """
+    expected = settings.metrics_token
+    if expected:
+        got = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
+        if not hmac.compare_digest(got.encode(), expected.encode()):
+            raise HTTPException(status_code=401, detail="metrics 需要访问令牌")
+    return PlainTextResponse(metrics.render(),
+                             media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 @app.get("/health", summary="健康检查（匿名、不碰数据库）")

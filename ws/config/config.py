@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     # 关掉后健康检查改走 /health（见 docker-compose.prod.yml）。
     expose_docs: bool = True
 
+    # /metrics 的访问令牌：为空则不限（本地开发）；设了就必须带 Bearer。
+    # 指标会暴露路径、错误率、耗时分布，不该对公网裸奔。
+    metrics_token: str = ""
+
     # ---------- RAG 向量检索 ----------
     # embedding 走 OpenAI 兼容的 /embeddings 接口（硅基流动、阿里云百炼、OpenAI 等都可用）。
     # 三项都不配置时自动退化为「内置本地词法向量」：零依赖、离线可用，

@@ -9,6 +9,7 @@ COPY ws/utils/http.py        /app/ws/utils/http.py
 COPY ws/utils/llm_client.py  /app/ws/utils/llm_client.py
 COPY ws/utils/logging_config.py /app/ws/utils/logging_config.py
 COPY ws/trace.py           /app/ws/trace.py
+COPY ws/metrics.py         /app/ws/metrics.py
 COPY ws/config/config.py     /app/ws/config/config.py
 COPY ws/security/jwt.py      /app/ws/security/jwt.py
 COPY ws/api/app.py           /app/ws/api/app.py
