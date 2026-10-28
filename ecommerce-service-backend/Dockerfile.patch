@@ -1,0 +1,11 @@
+# 中台补丁镜像：底座是线上运行的镜像，只覆盖鉴权相关文件。
+# 注意：本文件必须放在 ecommerce-service-backend/ 下，因为仓库根的 .dockerignore
+# 把整个 ecommerce-service-backend 目录排除了，用它做上下文会 COPY 不到文件。
+ARG BASE=ghcr.io/txjws05-debug/customer-service-ecommerce:b1d4aff645e411213f4ba75357778127f2421306
+FROM ${BASE}
+
+COPY app/app.py          /app/app/app.py
+COPY app/config.py       /app/app/config.py
+COPY app/shop_service.py /app/app/shop_service.py
+COPY app/security.py     /app/app/security.py
+COPY app/ownership.py    /app/app/ownership.py
