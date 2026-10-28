@@ -113,7 +113,7 @@ services:
       ecommerce:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18082/docs',timeout=3).status==200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18082/health',timeout=3).status==200 else 1)\""]
       interval: 15s
       timeout: 8s
       retries: 8

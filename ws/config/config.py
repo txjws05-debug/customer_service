@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     app_host: str
     app_port: int
 
+    # 生产环境关闭 /docs、/redoc、/openapi.json：接口形状不该公网可见。
+    # 关掉后健康检查改走 /health（见 docker-compose.prod.yml）。
+    expose_docs: bool = True
+
     # ---------- RAG 向量检索 ----------
     # embedding 走 OpenAI 兼容的 /embeddings 接口（硅基流动、阿里云百炼、OpenAI 等都可用）。
     # 三项都不配置时自动退化为「内置本地词法向量」：零依赖、离线可用，

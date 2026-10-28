@@ -44,7 +44,23 @@ async def lifespan(app: FastAPI):
     logger.info("Application shutdown complete")
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    docs_url="/docs" if settings.expose_docs else None,
+    redoc_url="/redoc" if settings.expose_docs else None,
+    openapi_url="/openapi.json" if settings.expose_docs else None,
+)
+
+
+@app.get("/health", summary="健康检查（匿名、不碰数据库）")
+async def health() -> dict:
+    """容器健康检查专用。
+
+    必须匿名且不查库：鉴权失败或数据库慢都不该让容器被判死、反复重启。
+    """
+    return {"status": "ok"}
+
+
 app.include_router(auth_router)
 app.include_router(chat_router)
 
