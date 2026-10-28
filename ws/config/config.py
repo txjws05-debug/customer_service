@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     llm_model: str
     llm_base_url: str
 
+    # 单次 LLM 请求的超时（秒）。没有这个上限，供应商抖动时请求会一直挂着，
+    # 整个对话链路跟着一起瘫 —— 这是本项目最致命的一处「无失败态设计」。
+    llm_timeout_seconds: float = 8.0
+    # 最多尝试几次。8s × 2 次 + 退避 ≈ 16.5s，仍在 20s 总预算内；
+    # 再叠加就会击穿接口 25s 上限，宁可快速失败给用户一句降级话术。
+    llm_max_attempts: int = 2
+
     # 数据库
     database_url: str
 
