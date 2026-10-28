@@ -15,6 +15,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app import cache
@@ -575,14 +576,35 @@ def _change_stock(db: Session, sku: models.ProductSku, change: int,
     ))
 
 
+def _created_data(order: models.Order, coupon_code: str | None = None) -> OrderCreatedData:
+    """把订单行转成下单响应（幂等回放与正常下单共用，避免两套字段）。"""
+    return OrderCreatedData(
+        order_id=order.order_id, status=order.status, status_desc=order.status_desc,
+        goods_amount=order.amount, discount_amount=order.discount_amount,
+        freight_amount=order.freight_amount, pay_amount=order.pay_amount,
+        coupon_code=coupon_code,
+        expires_in_minutes=int(rules.AUTO_CLOSE_AFTER.total_seconds() // 60),
+    )
+
+
 def create_order(
     db: Session,
     user: models.User,
     address_id: int | None = None,
     coupon_code: str | None = None,
     items: list | None = None,
+    request_id: str | None = None,
 ) -> OrderCreatedData:
-    """下单：传 items 为立即购买，否则结算购物车中已勾选的商品。"""
+    """下单：传 items 为立即购买，否则结算购物车中已勾选的商品。
+
+    request_id 为幂等键：同一个键重复调用只会产生一张订单，第二次直接回放结果。
+    并发的两个请求里，数据库唯一索引是最终保证，应用层只负责把冲突翻译成回放。
+    """
+    if request_id:
+        existing = db.scalar(
+            select(models.Order).filter(models.Order.request_id == request_id))
+        if existing is not None:
+            return _created_data(existing)
     # 超时未支付的旧订单先关掉，避免把库存一直占着
     auto_close_expired_orders(db, user)
 
@@ -640,10 +662,19 @@ def create_order(
         receiver_name=address.receiver_name, receiver_phone_masked=address.phone_masked,
         receiver_address=address.full_address,
         discount_amount=amounts.discount, freight_amount=amounts.freight,
-        pay_amount=amounts.pay, address_id=address.id,
+        pay_amount=amounts.pay, address_id=address.id, request_id=request_id,
     )
     db.add(order)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # 并发下另一个请求已经用同一个 request_id 建单：回滚本次，回放那一张。
+        db.rollback()
+        existing = db.scalar(
+            select(models.Order).filter(models.Order.request_id == request_id))
+        if existing is not None:
+            return _created_data(existing)
+        raise
 
     for sku, quantity in lines:
         product = sku.product
@@ -665,13 +696,7 @@ def create_order(
     # 下单改了库存 → 商品列表里的「库存状态/销量」要作废（提交后尽力作废）
     cache.bump("dynamic")
 
-    return OrderCreatedData(
-        order_id=order.order_id, status=order.status, status_desc=order.status_desc,
-        goods_amount=amounts.goods, discount_amount=amounts.discount,
-        freight_amount=amounts.freight, pay_amount=amounts.pay,
-        coupon_code=coupon_code if user_coupon else None,
-        expires_in_minutes=int(rules.AUTO_CLOSE_AFTER.total_seconds() // 60),
-    )
+    return _created_data(order, coupon_code if user_coupon else None)
 
 
 # ============================================================ 支付 / 取消 / 收货

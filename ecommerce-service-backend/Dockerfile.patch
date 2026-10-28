@@ -6,6 +6,8 @@ FROM ${BASE}
 
 COPY app/app.py          /app/app/app.py
 COPY app/config.py       /app/app/config.py
+COPY app/models.py       /app/app/models.py
+COPY app/shop_api.py     /app/app/shop_api.py
 COPY app/shop_service.py /app/app/shop_service.py
 COPY app/security.py     /app/app/security.py
 COPY app/ownership.py    /app/app/ownership.py

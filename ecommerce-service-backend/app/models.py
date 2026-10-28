@@ -161,6 +161,11 @@ class Order(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # 幂等键：同一个 request_id 只会产生一张订单。
+    # 可空 —— 历史订单与不带幂等键的调用不受影响；PostgreSQL 允许多个 NULL 并存，
+    # 所以唯一索引只约束「真的传了键」的那些行。
+    request_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     status: Mapped[str] = mapped_column(String(32))
     status_desc: Mapped[str] = mapped_column(String(255))

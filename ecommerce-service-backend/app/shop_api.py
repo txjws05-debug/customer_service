@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy.orm import Session
 
 from app import shop_service as svc
@@ -145,11 +145,18 @@ def get_points(user_id: str, db: Session = Depends(get_db)):
 # ============================================================ 订单
 @router.post("/orders", response_model=ApiResponse, tags=["交易-订单"],
              summary="下单（items 为立即购买；不传则结算购物车勾选项）")
-def create_order(payload: OrderCreateRequest, db: Session = Depends(get_db)):
+def create_order(
+    payload: OrderCreateRequest,
+    idempotency_key: str | None = Header(
+        default=None, alias="Idempotency-Key",
+        description="幂等键：同一个键重复提交只会产生一张订单"),
+    db: Session = Depends(get_db),
+):
     user = svc.get_user(db, payload.user_id)
     return _wrap(svc.create_order(
         db, user, address_id=payload.address_id,
         coupon_code=payload.coupon_code, items=payload.items,
+        request_id=(idempotency_key or None),
     ))
 
 
