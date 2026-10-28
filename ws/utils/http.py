@@ -5,6 +5,7 @@ from httpx import AsyncClient
 
 from ws.utils.errors import ChatServiceError
 from ws.config.config import settings
+from ws.utils.logging_config import current_trace_id
 
 http_client: AsyncClient | None = None
 
@@ -36,6 +37,9 @@ async def _request_api(method: str, url: str, json_body: dict | None = None) -> 
         raise ChatServiceError("系统正在启动中，请稍后再试。")
 
     headers = {}
+    # 同一个 trace_id 继续往中台传：一次用户提问会横跨两个服务，
+    # 只有 id 传下去，才能在两个容器的日志里把它们串成一条链路
+    headers["X-Request-Id"] = current_trace_id()
     if settings.commerce_service_token:
         # 中台按「服务令牌 → 运营令牌 → 用户 JWT」的顺序识别身份。
         # Agent 代表用户操作，必须用服务令牌，不能伪造用户 JWT。

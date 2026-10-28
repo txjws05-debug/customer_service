@@ -11,4 +11,5 @@ COPY app/shop_api.py     /app/app/shop_api.py
 COPY app/shop_service.py /app/app/shop_service.py
 COPY app/init_data.py    /app/app/init_data.py
 COPY app/security.py     /app/app/security.py
+COPY app/trace.py        /app/app/trace.py
 COPY app/ownership.py    /app/app/ownership.py

@@ -13,6 +13,7 @@ from ws.knowledge.reindex import ensure_index
 from ws.utils import database
 from ws.utils.errors import ChatServiceError
 from ws.utils.http import close_http_client, init_http_client
+from ws.trace import TraceMiddleware
 from ws.utils.logging_config import setup_logging
 
 logger = logging.getLogger("ws.app")
@@ -50,6 +51,11 @@ app = FastAPI(
     redoc_url="/redoc" if settings.expose_docs else None,
     openapi_url="/openapi.json" if settings.expose_docs else None,
 )
+
+
+# 最后添加 = 最外层：先绑 trace_id，再进业务与鉴权，
+# 这样连 401/500 的日志也带得上 id
+app.add_middleware(TraceMiddleware)
 
 
 @app.get("/health", summary="健康检查（匿名、不碰数据库）")
