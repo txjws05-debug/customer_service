@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # 商城 API
     commerce_api_base_url: str
 
+    # 调中台时带的服务令牌（中台 AUTH_ENFORCE=on 时必填）。
+    # 留空则不带该请求头 —— 本地开发/灰度期不受影响。
+    commerce_service_token: str = ""
+
     # 登录用户 → 商城用户号的兜底映射（演示用）。
     # 真实系统应该是一张「账号绑定」表（用户在自己的个人中心绑定商城账号）；
     # 演示环境里，登录名不是商城号时统一按这个账号办理交易，

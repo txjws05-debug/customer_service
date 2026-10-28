@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, joinedload
 from app import cache
 from app import models
 from app import shop_rules as rules
+from app.ownership import ensure_order_scope, ensure_user_scope
 from app.shop_schemas import (
     AddressCreateRequest,
     AddressData,
@@ -62,6 +63,7 @@ def get_user(db: Session, user_id: str) -> models.User:
     user = db.scalar(select(models.User).filter(models.User.user_id == user_id))
     if not user:
         raise ShopError(f"用户 {user_id} 不存在。", 404)
+    ensure_user_scope(user.user_id)
     return user
 
 
@@ -687,6 +689,7 @@ def _get_order(db: Session, order_id: str) -> models.Order:
     )
     if not order:
         raise ShopError(f"订单 {order_id} 不存在。", 404)
+    ensure_order_scope(order)
     return order
 
 

@@ -11,6 +11,8 @@ from app.shop_admin_api import router as shop_admin_router
 from app.shop_after_sale_api import router as shop_after_sale_router
 from app.shop_api import router as shop_router
 from app.shop_service import ShopError
+from app.config import settings
+from app.security import AuthMiddleware
 
 
 @asynccontextmanager
@@ -104,9 +106,22 @@ app = FastAPI(
     ),
     openapi_tags=openapi_tags,
     lifespan=lifespan,
+    # 生产默认关掉 /docs：接口形状不该公网可见，要看就设 EXPOSE_DOCS=true
+    docs_url="/docs" if settings.expose_docs else None,
+    redoc_url="/redoc" if settings.expose_docs else None,
+    openapi_url="/openapi.json" if settings.expose_docs else None,
 )
 
+# 鉴权挂中间件：一次覆盖全部路由（含以后新增的），也才能在服务层拿到身份
+app.add_middleware(AuthMiddleware)
+
 app.include_router(router)
+
+
+@app.get("/health", tags=["系统"], summary="健康检查（匿名）")
+def health() -> dict:
+    """容器健康检查专用：必须匿名、且不碰数据库，避免把依赖故障放大成容器反复重启。"""
+    return {"status": "ok"}
 # 交易域独立命名空间：既有只读接口的路径与响应结构一概不动
 app.include_router(shop_router, prefix="/shop")
 app.include_router(shop_after_sale_router, prefix="/shop")

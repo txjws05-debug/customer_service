@@ -4,6 +4,7 @@ import httpx
 from httpx import AsyncClient
 
 from ws.utils.errors import ChatServiceError
+from ws.config.config import settings
 
 http_client: AsyncClient | None = None
 
@@ -34,8 +35,14 @@ async def _request_api(method: str, url: str, json_body: dict | None = None) -> 
     if http_client is None:
         raise ChatServiceError("系统正在启动中，请稍后再试。")
 
+    headers = {}
+    if settings.commerce_service_token:
+        # 中台按「服务令牌 → 运营令牌 → 用户 JWT」的顺序识别身份。
+        # Agent 代表用户操作，必须用服务令牌，不能伪造用户 JWT。
+        headers["X-Service-Token"] = settings.commerce_service_token
+
     try:
-        response = await http_client.request(method, url, json=json_body)
+        response = await http_client.request(method, url, json=json_body, headers=headers)
     except httpx.HTTPError:
         raise ChatServiceError("网络繁忙，请稍后再试。")
 

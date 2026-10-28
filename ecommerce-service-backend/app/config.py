@@ -29,5 +29,21 @@ class Settings:
     # 启动时若库为空则写入演示数据（便于课堂演示；置 false 可关闭）
     seed_on_startup: bool = _env_bool("SEED_ON_STARTUP", True)
 
+    # ---------------------------------------------------------- 接入鉴权
+    # off：不校验（默认，与改造前完全一致）；warn：只记日志放行；on：强制
+    auth_enforce: str = os.getenv("AUTH_ENFORCE", "off").strip().lower()
+
+    # Agent 调中台用的服务令牌；为空时服务身份永远匹配不上（等价于没开）
+    service_token: str = os.getenv("SERVICE_TOKEN", "")
+
+    # 商家后台的静态令牌，不引入角色体系，省掉跨服务的角色同步
+    operator_token: str = os.getenv("OPERATOR_TOKEN", "")
+
+    # 与客服 Agent 共用同一个密钥，只做校验不做签发
+    jwt_secret: str = os.getenv("JWT_SECRET_KEY", "")
+
+    # 生产环境默认关闭 /docs，避免把全部接口形状暴露在公网
+    expose_docs: bool = _env_bool("EXPOSE_DOCS", True)
+
 
 settings = Settings()
