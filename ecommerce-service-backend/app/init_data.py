@@ -28,11 +28,14 @@ def create_tables() -> None:
     logger.info("数据表已就绪: %s", ", ".join(inspect(engine).get_table_names()))
 
 
-# ---------------------------------------------------------------- 轻量迁移
-# 为什么不用 Alembic：本项目只有 PG 一个库、单人维护、部署即启动，
-# 引入迁移框架的收益不抵成本。但 create_all 只建「新表」，不会给已存在的表
-# 加列 —— 而线上库早就有 users/products/orders 了，所以必须自己补列。
-# 全部写成幂等的 ADD COLUMN IF NOT EXISTS，重复启动无副作用。
+# ---------------------------------------------------------------- 结构演进
+# 历史：早期判断「只有 PG 一个库、单人维护」，用 create_all + 幂等补列代替迁移框架。
+# 现在触发条件变了：结构变更开始跨环境（本地/服务器）、需要可回退、需要知道
+# 「这个库到底停在哪个版本」，所以引入了 Alembic（见 migrations/ 与 deploy/migrate.sh）。
+#
+# 这里保留 create_all 与补列逻辑，只承担**空库引导**：让 `docker run` 起一个全新库
+# 也能直接跑起来。真正对已存在库的结构变更，一律走 Alembic 迁移文件，不再往
+# _NEW_COLUMNS 里加东西 —— 否则同一处变更会有两个来源，迟早打架。
 _NEW_COLUMNS: list[tuple[str, str, str]] = [
     # 用户：会员标记与积分
     ("users", "is_plus", "BOOLEAN NOT NULL DEFAULT false"),
