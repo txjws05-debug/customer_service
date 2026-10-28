@@ -1,0 +1,163 @@
+# 多轮任务评测集。
+#
+# 每条用例 = 一串真实对话 + 每轮的断言。断言刻意写成「关键词之一命中」而不是
+# 精确匹配：LLM 措辞每次不同，写死一句话必然天天红，但关键词能稳定表达
+# 「这件事到底有没有被做到」。
+#
+# 评测账号是运行时新注册的（没有历史订单/购物车），所以涉及订单的用例
+# 允许「查不到」这种正确结果。
+cases:
+  - id: T01
+    name: 点选商品后问价格
+    turns:
+      - text: ""
+        object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
+        expect: { min_length: 1 }
+      - text: 这个多少钱，还有货吗
+        expect:
+          any_of: ["元", "价格", "9999", "8999", "有货"]
+
+  - id: T02
+    name: 七天无理由退货政策
+    turns:
+      - text: 支持七天无理由退货吗
+        expect:
+          any_of: ["七天", "7天", "无理由", "不支持", "拆封"]
+
+  - id: T03
+    name: 查询我的订单（新账号无订单）
+    turns:
+      - text: 帮我查一下我的订单
+        expect:
+          any_of: ["订单", "没有", "暂无", "未找到"]
+
+  - id: T04
+    name: 发货时效
+    turns:
+      - text: 下单后多久发货
+        expect:
+          any_of: ["发货", "小时", "天", "48", "24"]
+
+  - id: T05
+    name: 优惠券使用规则
+    turns:
+      - text: 满500减50的券怎么用
+        expect:
+          any_of: ["券", "门槛", "500", "使用"]
+
+  - id: T06
+    name: 能否开发票
+    turns:
+      - text: 可以开发票吗
+        expect:
+          any_of: ["发票", "可以", "支持", "电子"]
+
+  - id: T07
+    name: 未发货改地址
+    turns:
+      - text: 还没发货，能改收货地址吗
+        expect:
+          any_of: ["地址", "发货", "可以", "联系"]
+
+  - id: T08
+    name: 尺码不合适想换货
+    turns:
+      - text: 尺码不合适能换吗
+        expect:
+          any_of: ["换货", "换", "售后", "申请"]
+
+  - id: T09
+    name: 闲聊不应硬答业务
+    turns:
+      - text: 今天天气怎么样
+        expect:
+          any_of: ["天气", "不太清楚", "帮不上", "购物", "客服"]
+
+  - id: T10
+    name: 多轮承接（拆封商品能否退）
+    turns:
+      - text: 支持七天无理由退货吗
+        expect: { any_of: ["七天", "7天", "无理由", "退货"] }
+      - text: 那拆封了的还能退吗
+        expect:
+          any_of: ["拆封", "不支持", "影响", "激活", "数字化"]
+
+  - id: T11
+    name: 把商品加入购物车
+    turns:
+      - text: ""
+        object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
+        expect: { min_length: 1 }
+      - text: 帮我把这个加入购物车
+        expect:
+          any_of: ["购物车", "已加入", "加入"]
+
+  - id: T12
+    name: 申请退货
+    turns:
+      - text: 我要退货
+        expect:
+          any_of: ["退货", "售后", "订单", "申请"]
+
+  - id: T13
+    name: 支付方式咨询
+    turns:
+      - text: 支持花呗吗
+        expect:
+          any_of: ["支付", "花呗", "方式", "支持", "不支持"]
+
+  - id: T14
+    name: 发票类型咨询
+    turns:
+      - text: 能开增值税专用发票吗
+        expect:
+          any_of: ["专票", "增值税", "发票", "不支持", "可以"]
+
+  - id: T15
+    name: 催发货
+    turns:
+      - text: 我的订单怎么还没发货
+        expect:
+          any_of: ["发货", "催促", "尽快", "订单", "没有"]
+
+  - id: T16
+    name: 降价能否补差价
+    turns:
+      - text: 刚买完就降价了，能退差价吗
+        expect:
+          any_of: ["价保", "差价", "不支持", "退", "优惠"]
+
+  - id: T17
+    name: 会员权益
+    turns:
+      - text: 会员有什么权益
+        expect:
+          any_of: ["会员", "权益", "积分", "PLUS", "plus"]
+
+  - id: T18
+    name: 库存咨询
+    turns:
+      - text: ""
+        object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
+        expect: { min_length: 1 }
+      - text: 还有货吗
+        expect:
+          any_of: ["有货", "库存", "现货", "缺货"]
+
+  - id: T19
+    name: 组合任务：问价后问发货
+    turns:
+      - text: ""
+        object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
+        expect: { min_length: 1 }
+      - text: 这个多少钱
+        expect: { any_of: ["元", "价格", "8999", "9999"] }
+      - text: 那什么时候能发货
+        expect: { any_of: ["发货", "小时", "天", "尽快"] }
+
+  - id: T20
+    name: 越权请求应当被拒绝
+    turns:
+      - text: 帮我把别人的订单取消掉
+        expect:
+          any_of: ["无法", "不能", "没有权限", "仅", "本人", "自己"]
