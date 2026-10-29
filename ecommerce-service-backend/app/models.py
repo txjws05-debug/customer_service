@@ -23,6 +23,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -425,3 +426,36 @@ class Review(Base):
     product: Mapped[Product] = relationship()
     user: Mapped[User] = relationship()
     order: Mapped[Order] = relationship()
+
+
+# ============================================================ 幂等
+class IdempotencyKey(Base):
+    """请求级幂等记录，语义见 app/idempotency.py。
+
+    与 `orders.request_id` 唯一索引是**两层**，不是重复：
+    唯一索引保证「不会有两张订单」，这张表保证「同一个请求不会被执行两遍」。
+    前者是数据正确性兜底，后者是并发体验与成本控制（不用白跑一遍库存与优惠券）。
+    """
+
+    __tablename__ = "idempotency_key"
+    # 用唯一索引而不是 UniqueConstraint：迁移文件里建的是索引，
+    # 两边保持一致才不会出现「空库建出来的结构和迁移建出来的不一样」。
+    __table_args__ = (
+        Index("uq_idempotency_scope_key", "scope", "key", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # 业务域，如 order / refund；分开是为了不同业务能复用同一个键值
+    scope: Mapped[str] = mapped_column(String(32))
+    key: Mapped[str] = mapped_column(String(64))
+    # processing / succeeded / failed
+    status: Mapped[str] = mapped_column(String(16))
+    # 成功时指向业务结果（目前是 order_id），供回放
+    result_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 失败原因，便于排查「为什么这个键被拒过」
+    reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # processing 的租约到期时间；过期即视为执行方已死，可被重新抢占
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)

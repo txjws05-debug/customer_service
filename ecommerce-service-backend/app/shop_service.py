@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app import cache
+from app import idempotency
 from app import models
 from app import shop_rules as rules
 from app.ownership import ensure_order_scope, ensure_user_scope
@@ -587,6 +588,11 @@ def _created_data(order: models.Order, coupon_code: str | None = None) -> OrderC
     )
 
 
+def _order_by_request_id(db: Session, request_id: str) -> models.Order | None:
+    return db.scalar(
+        select(models.Order).filter(models.Order.request_id == request_id))
+
+
 def create_order(
     db: Session,
     user: models.User,
@@ -597,14 +603,52 @@ def create_order(
 ) -> OrderCreatedData:
     """下单：传 items 为立即购买，否则结算购物车中已勾选的商品。
 
-    request_id 为幂等键：同一个键重复调用只会产生一张订单，第二次直接回放结果。
-    并发的两个请求里，数据库唯一索引是最终保证，应用层只负责把冲突翻译成回放。
+    三层防护，逐层收窄，缺一层都会留一个洞：
+    1. `idempotency_key` 表（本函数）：请求级，挡住「同一个请求被执行两遍」；
+    2. `orders.request_id` 唯一索引：数据级，挡住任何绕过第 1 层的重复建单；
+    3. 业务层 `SELECT ... FOR UPDATE`：库存级，挡住超卖。
+
+    只做第 2 层的问题：两个并发请求都会完整跑一遍库存与优惠券，输的一方
+    在唯一冲突时才回滚，白占行锁；用户也看不到「处理中」这个状态。
     """
-    if request_id:
-        existing = db.scalar(
-            select(models.Order).filter(models.Order.request_id == request_id))
-        if existing is not None:
-            return _created_data(existing)
+    if request_id is None:
+        # 不带键 = 老调用方，行为与改造前完全一致
+        return _do_create_order(db, user, address_id, coupon_code, items, None)
+
+    acquired = idempotency.try_acquire(db, idempotency.SCOPE_ORDER, request_id)
+    if acquired.state == "in_progress":
+        raise ShopError(
+            "同一笔下单正在处理中，请勿重复提交；稍等几秒刷新订单列表即可。", 409)
+    if acquired.state == "succeeded":
+        existing = _order_by_request_id(db, request_id)
+        if existing is None:
+            # 记录说成功了但订单查不到：宁可让用户稍后查列表，也不重新建单
+            raise ShopError("这笔请求已处理，请稍后在订单列表查看结果。", 409)
+        return _created_data(existing)
+
+    try:
+        return _do_create_order(db, user, address_id, coupon_code, items, request_id)
+    except ShopError as exc:
+        db.rollback()
+        # 失败要立刻释放这个键，否则用户改完地址/换个规格再提交会被自己挡住
+        idempotency.mark_failed(idempotency.SCOPE_ORDER, request_id, str(exc))
+        raise
+    except Exception:
+        db.rollback()
+        idempotency.mark_failed(
+            idempotency.SCOPE_ORDER, request_id, "unexpected_error")
+        raise
+
+
+def _do_create_order(
+    db: Session,
+    user: models.User,
+    address_id: int | None,
+    coupon_code: str | None,
+    items: list | None,
+    request_id: str | None,
+) -> OrderCreatedData:
+    """真正干活的那一段。只有末尾一次 commit —— 要么全成，要么全不成。"""
     # 超时未支付的旧订单先关掉，避免把库存一直占着
     auto_close_expired_orders(db, user)
 
@@ -668,11 +712,15 @@ def create_order(
     try:
         db.flush()
     except IntegrityError:
-        # 并发下另一个请求已经用同一个 request_id 建单：回滚本次，回放那一张。
+        # 唯一索引兜住了并发：有人抢在我们前面建了单。
+        # 这属于「成功」而不是「失败」—— 幂等记录必须补成 succeeded 再回放，
+        # 否则这个键会停在 processing，用户重试只会一直拿到 409。
         db.rollback()
-        existing = db.scalar(
-            select(models.Order).filter(models.Order.request_id == request_id))
+        existing = _order_by_request_id(db, request_id) if request_id else None
         if existing is not None:
+            idempotency.mark_succeeded(
+                db, idempotency.SCOPE_ORDER, request_id, existing.order_id)
+            db.commit()
             return _created_data(existing)
         raise
 
@@ -692,6 +740,10 @@ def create_order(
 
     clear_cart_items(db, user, cart_item_ids)
     _log_status(db, order, None, rules.STATUS_PENDING_PAY, "user", "创建订单")
+    if request_id:
+        # 与订单同一次提交：分开提交会留出「幂等记录说成功、订单没落库」的窗口
+        idempotency.mark_succeeded(
+            db, idempotency.SCOPE_ORDER, request_id, order.order_id)
     db.commit()
     # 下单改了库存 → 商品列表里的「库存状态/销量」要作废（提交后尽力作废）
     cache.bump("dynamic")
