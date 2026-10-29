@@ -68,10 +68,29 @@ def check(text: str, expect: dict) -> tuple[bool, str]:
     return True, ""
 
 
+def classify_failure(status: int, reply: str, detail: str = "") -> str:
+    """区分「能力没做到」和「上游抖动」。
+
+    两者都算失败（用户确实没拿到答案），但混在一起看通过率会误导：
+    超时是外部因素，断言不中是系统能力问题，改进方向完全不同。
+    """
+    text = f"{reply} {detail}"
+    if status == 400 and ("超时" in text or "timeout" in text.lower()):
+        return "upstream_timeout"
+    if status == 429:
+        return "rate_limited"
+    if status >= 500:
+        return "server_error"
+    if status != 200:
+        return "http_error"
+    return "assertion"
+
+
 def run_case(base: str, token: str, case: dict) -> dict:
     started = time.time()
     transcript = []
     failures = []
+    error_kinds: set[str] = set()
     for index, turn in enumerate(case["turns"], 1):
         payload = {"text": turn["text"]}
         if turn.get("object"):
@@ -81,7 +100,9 @@ def run_case(base: str, token: str, case: dict) -> dict:
         transcript.append({"turn": index, "user": turn["text"],
                            "status": status, "reply": text})
         if status != 200:
-            failures.append(f"第 {index} 轮 HTTP {status}")
+            kind = classify_failure(status, text, str(data.get("detail", "")))
+            error_kinds.add(kind)
+            failures.append(f"第 {index} 轮 HTTP {status}（{kind}）")
             break
         ok, reason = check(text, turn.get("expect") or {})
         if not ok:
@@ -90,6 +111,7 @@ def run_case(base: str, token: str, case: dict) -> dict:
         "id": case["id"],
         "name": case.get("name", case["id"]),
         "passed": not failures,
+        "error_kinds": sorted(error_kinds),
         "failures": failures,
         "cost_s": round(time.time() - started, 2),
         "turns": len(transcript),
@@ -130,7 +152,10 @@ def main() -> int:
     passed = sum(1 for r in results if r["passed"])
     rate = passed / len(results) if results else 0.0
     total_cost = round(sum(r["cost_s"] for r in results), 1)
+    timeouts = sum(1 for r in results if "upstream_timeout" in r["error_kinds"])
     print(f"\n通过率 {passed}/{len(results)} = {rate:.1%}，总耗时 {total_cost}s")
+    if timeouts:
+        print(f"其中 {timeouts} 条是上游超时（非能力缺失，可用 --json 报告里的 error_kinds 过滤）")
     print(f"账号 {username}（用例产生的订单/购物车可用该账号清理）")
 
     Path(args.json).write_text(json.dumps({
