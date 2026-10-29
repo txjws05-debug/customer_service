@@ -3,6 +3,7 @@ from ws.config.config import settings
 from ws.repository.orm.base import Base
 from ws.repository.orm import dialogue_state  # noqa: F401  确保模型已注册到 metadata
 from ws.repository.orm import user  # noqa: F401  确保 users 表模型已注册
+from ws.repository.orm import handoff  # noqa: F401  确保 handoff_tickets 模型已注册
 
 engine:AsyncEngine|None=None
 session_factory:async_sessionmaker[AsyncSession]|None=None

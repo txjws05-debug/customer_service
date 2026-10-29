@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     # 全站每日 token 预算（0=不限）。模型按 token 计费，跑飞了只能靠它拦。
     chat_daily_token_budget: int = 300000
 
+    # 运营接口（人工工单队列）的访问令牌；为空则该组接口直接 403
+    operator_token: str = ""
+
     # ---------- RAG 向量检索 ----------
     # embedding 走 OpenAI 兼容的 /embeddings 接口（硅基流动、阿里云百炼、OpenAI 等都可用）。
     # 三项都不配置时自动退化为「内置本地词法向量」：零依赖、离线可用，
