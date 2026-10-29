@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -39,6 +40,52 @@ def _post(url: str, payload: dict, token: str | None = None, timeout: int = 60):
             return exc.code, json.loads(body or "{}")
         except json.JSONDecodeError:
             return exc.code, {"raw": body[:200]}
+
+
+def _call(method: str, url: str, headers: dict | None = None,
+          payload: dict | None = None, timeout: int = 30):
+    data = json.dumps(payload).encode() if payload is not None else None
+    request = urllib.request.Request(
+        url, data=data, headers=headers or {}, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read().decode() or "{}")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode()
+        try:
+            return exc.code, json.loads(body or "{}")
+        except json.JSONDecodeError:
+            return exc.code, {"raw": body[:200]}
+
+
+def reset_cart(commerce_url: str, service_token: str, shop_user: str) -> int:
+    """跑之前清空评测账号用的购物车。
+
+    为什么必须做：所有非 `u####` 的登录都会回落到同一个演示商城账号，
+    评测每跑一轮就往这个购物车加货。连跑几轮后某个规格被加到库存上限，
+    再加购就会返回 400 —— 那时失败的是**评测自己留下的状态**，不是产品能力。
+    一个会被自己残留弄红的门禁，等于没有门禁。
+
+    返回清掉的条目数；commerce_url 为空时跳过（纯对话用例可以不配）。
+    """
+    if not commerce_url or not service_token:
+        return 0
+    headers = {"X-Service-Token": service_token, "Content-Type": "application/json"}
+    status, data = _call(
+        "GET", f"{commerce_url}/shop/users/{shop_user}/cart", headers)
+    if status != 200:
+        print(f"清理购物车失败（{status}），跳过：{str(data)[:80]}")
+        return 0
+    items = (data.get("data") or {}).get("items") or []
+    removed = 0
+    for item in items:
+        code, _ = _call(
+            "DELETE",
+            f"{commerce_url}/shop/users/{shop_user}/cart/{item['item_id']}",
+            headers)
+        if code == 200:
+            removed += 1
+    return removed
 
 
 def register(base: str, username: str, password: str) -> str:
@@ -128,6 +175,12 @@ def main() -> int:
                         help="通过率门槛，低于它进程退出码为 1")
     parser.add_argument("--json", default="task_eval_report.json")
     parser.add_argument("--quiet", action="store_true", help="只打印汇总")
+    parser.add_argument("--commerce-url", default="",
+                        help="中台地址；给了就会在跑之前清空评测账号的购物车")
+    parser.add_argument("--commerce-token", default=os.getenv("COMMERCE_SERVICE_TOKEN", ""),
+                        help="中台服务令牌，默认取环境变量 COMMERCE_SERVICE_TOKEN")
+    parser.add_argument("--shop-user", default=os.getenv("COMMERCE_DEFAULT_USER_ID", "u1001"),
+                        help="评测账号实际对应的商城账号号")
     args = parser.parse_args()
 
     cases = yaml.safe_load(Path(args.cases).read_text(encoding="utf-8"))["cases"]
@@ -136,6 +189,9 @@ def main() -> int:
 
     username = f"eval_{uuid.uuid4().hex[:8]}"
     token = register(args.base_url, username, "eval-pass-123456")
+    removed = reset_cart(args.commerce_url, args.commerce_token, args.shop_user)
+    if removed:
+        print(f"已清空评测购物车 {removed} 条（避免上一轮残留影响本轮）")
     print(f"评测账号 {username}，用例 {len(cases)} 条，目标 {args.base_url}")
 
     results = []
