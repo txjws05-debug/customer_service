@@ -2,7 +2,7 @@ import json
 import uuid
 from dataclasses import asdict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from  fastapi.params import Depends
 from fastapi.responses import StreamingResponse
 
@@ -10,6 +10,7 @@ from ws.api.schemas import HistoryResponse
 from ws.api.schemas import ChatRequest, ChatResponse, ChatMessage, ChatObject, HistoryMessage
 from ws.api.deps import get_dialogue_service, get_current_user
 from ws.domain.message import UserMessage,ProcessResult,MessageType,MessageObject
+from ws.guard import quota
 from ws.domain.state import DialogueState, Session, Turn
 from ws.service.dialogue_service import DialogueService
 from ws.utils.errors import ChatServiceError
@@ -23,6 +24,7 @@ async def chat(chat_request:ChatRequest ,
          dialogue_service:DialogueService=Depends(get_dialogue_service)
          )->ChatResponse:
 
+    _ensure_quota(current_user)
     user_message:UserMessage=_build_user_message(chat_request,current_user)
     process_result:ProcessResult=await dialogue_service.process_message(user_message)
     return _build_chat_response(process_result)
@@ -32,6 +34,7 @@ async def chat(chat_request:ChatRequest ,
 async def chat_stream(chat_request:ChatRequest,
                       current_user:str=Depends(get_current_user),
                       dialogue_service:DialogueService=Depends(get_dialogue_service)):
+    _ensure_quota(current_user)
     user_message:UserMessage=_build_user_message(chat_request,current_user)
 
     async def event_generator():
@@ -46,6 +49,15 @@ async def chat_stream(chat_request:ChatRequest,
 
     return StreamingResponse(event_generator(),
                              media_type="text/event-stream")
+
+def _ensure_quota(user: str) -> None:
+    """限流与预算检查。放在建消息之前：被拦的请求不该产生任何下游调用。"""
+    decision = quota.acquire_chat(user)
+    if decision.allowed:
+        return
+    headers = {"Retry-After": str(decision.retry_after)} if decision.retry_after else None
+    raise HTTPException(status_code=429, detail=decision.reason, headers=headers)
+
 
 #ChatRequest转换 UserMessage
 def _build_user_message(chat_request:ChatRequest,sender_id:str)->UserMessage:

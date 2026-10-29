@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     # 指标会暴露路径、错误率、耗时分布，不该对公网裸奔。
     metrics_token: str = ""
 
+    # 对话限流：单用户每分钟最多几条。防脚本刷，也防手滑连点。
+    chat_rate_limit_per_minute: int = 30
+    # 全站每日 token 预算（0=不限）。模型按 token 计费，跑飞了只能靠它拦。
+    chat_daily_token_budget: int = 300000
+
     # ---------- RAG 向量检索 ----------
     # embedding 走 OpenAI 兼容的 /embeddings 接口（硅基流动、阿里云百炼、OpenAI 等都可用）。
     # 三项都不配置时自动退化为「内置本地词法向量」：零依赖、离线可用，

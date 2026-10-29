@@ -1,6 +1,7 @@
 from langchain.chat_models import init_chat_model
 
 from ws.config.config import settings
+from ws.guard.quota import UsageTracker
 
 # 初始化 LLM。
 #
@@ -26,3 +27,7 @@ llm = llm.with_retry(
     wait_exponential_jitter=True,
     exponential_jitter_params={"initial": 0.5, "max": 1.0},
 )
+
+# 把每次调用的 token 用量记进全站预算。挂在 llm 单例上，
+# 所有 `prompt | llm | parser` 链自动带着走，不用改 13 个调用点。
+llm = llm.with_config({"callbacks": [UsageTracker()]})
