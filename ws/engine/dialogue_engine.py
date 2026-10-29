@@ -7,6 +7,7 @@ from ws.chitchat.handler import ChitchatHandler
 from ws.clarify.handler import ClarifyResponder
 from ws.domain.message import UserMessage, ProcessResult, MessageType, BotMessage
 from ws.domain.state import DialogueState, Turn, FocusedObject
+from ws.engine.safety import cross_user_refusal
 from ws.knowledge.handle import KnowledgeHandler
 from ws.plan.models import TurnPlan, TurnPlanValidationResult, ClarifyReason
 from ws.plan.turn_plan import TurnPlanner
@@ -83,6 +84,11 @@ class DialogueEngine:
 
     async def _stream_text(self,user_message:UserMessage,
                            state:DialogueState)->AsyncIterator[str]:
+        # 越权请求先行拦截：安全边界不交给 LLM 判断（见 ws/engine/safety.py）
+        refusal = cross_user_refusal(user_message.text)
+        if refusal:
+            yield refusal
+            return
         turnPlan:TurnPlan=await self._turn_plan.plan(
             user_message=user_message,state=state,
             knowledge_intents=self._knowledge_handler.knowledge_intents,
@@ -149,6 +155,10 @@ class DialogueEngine:
                 current_session.last_activity_at=now
     #处理文本类型消息
     async def _execute_text_message(self,user_message:UserMessage,state:DialogueState)->list[BotMessage]:
+        # 越权请求先行拦截，与流式路径共用同一套规则
+        refusal = cross_user_refusal(user_message.text)
+        if refusal:
+            return [BotMessage(text=refusal)]
         #1根据user——message文本提问信息，调用llm，进行意图识别
         #识别执行哪个轨道：任务流程、知识检索、闲聊
         #如果任务流程，识别流程id
