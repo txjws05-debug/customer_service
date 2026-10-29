@@ -10,7 +10,10 @@ from ws.api.schemas import HistoryResponse
 from ws.api.schemas import ChatRequest, ChatResponse, ChatMessage, ChatObject, HistoryMessage
 from ws.api.deps import get_dialogue_service, get_current_user
 from ws.domain.message import UserMessage,ProcessResult,MessageType,MessageObject
+from ws import metrics
 from ws.guard import quota
+from ws.config.config import settings
+from ws.utils.stream_guard import guard_first_token
 from ws.domain.state import DialogueState, Session, Turn
 from ws.service.dialogue_service import DialogueService
 from ws.utils.errors import ChatServiceError
@@ -39,7 +42,11 @@ async def chat_stream(chat_request:ChatRequest,
 
     async def event_generator():
         try:
-            async for delta in dialogue_service.process_message_stream(user_message):
+            stream = guard_first_token(
+                dialogue_service.process_message_stream(user_message),
+                deadline=settings.llm_first_token_timeout,
+                on_timeout=lambda: metrics.inc("llm_first_token_timeout_total"))
+            async for delta in stream:
                 if delta:
                     yield f"data: {json.dumps({'text': delta}, ensure_ascii=False)}\n\n"
         except ChatServiceError as exc:

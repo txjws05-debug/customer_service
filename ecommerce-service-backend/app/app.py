@@ -18,6 +18,11 @@ from app.trace import TraceMiddleware, setup_logging as setup_trace_logging
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 生产环境不允许把鉴权关掉：off 只该存在于本地与灰度窗口。
+    # 宁可启动失败（立刻可见），也不要带着「没上锁的门」跑一整天。
+    if settings.app_env == "prod" and settings.auth_enforce == "off":
+        raise RuntimeError(
+            "生产环境(AUTH_ENFORCE=off)不允许启动：请设为 warn 或 on")
     # 商品缓存是可选能力：没配 REDIS_URL、或 Redis 连不上，都只是「没有缓存」，
     # 服务照常启动并直连 PostgreSQL —— 缓存永远不能成为可用性的单点。
     setup_trace_logging()

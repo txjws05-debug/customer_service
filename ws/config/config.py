@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     # 最多尝试几次。8s × 2 次 + 退避 ≈ 16.5s，仍在 20s 总预算内；
     # 再叠加就会击穿接口 25s 上限，宁可快速失败给用户一句降级话术。
     llm_max_attempts: int = 2
+    # 流式首包超时：超过这个时间还没吐出第一个字，就不让用户干等
+    llm_first_token_timeout: float = 6.0
 
     # 数据库
     database_url: str

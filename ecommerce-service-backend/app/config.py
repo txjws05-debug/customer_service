@@ -31,6 +31,8 @@ class Settings:
 
     # ---------------------------------------------------------- 接入鉴权
     # off：不校验（默认，与改造前完全一致）；warn：只记日志放行；on：强制
+    # 部署环境：prod 时禁止把鉴权关掉（见 app.py 启动校验）
+    app_env: str = os.getenv("APP_ENV", "dev").strip().lower()
     auth_enforce: str = os.getenv("AUTH_ENFORCE", "off").strip().lower()
 
     # Agent 调中台用的服务令牌；为空时服务身份永远匹配不上（等价于没开）

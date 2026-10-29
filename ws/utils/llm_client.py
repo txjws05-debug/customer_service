@@ -1,4 +1,6 @@
 from langchain.chat_models import init_chat_model
+from openai import (APIConnectionError, APITimeoutError,
+                    InternalServerError, RateLimitError)
 
 from ws.config.config import settings
 from ws.guard.quota import UsageTracker
@@ -22,7 +24,14 @@ llm = init_chat_model(
 
 # 瞬时限流 / 网络抖动时指数退避重试；退避上限压到 1s，避免退避本身吃掉预算。
 # 最终仍失败由调用方经 as_chat_service_error 转成友好提示。
+# 白名单而不是黑名单：只有"连接抖动 / 超时 / 限流 / 上游 5xx" 值得重试。
+# 4xx（参数错、鉴权错、模型不存在）重试三次只是把同一个错误重复三遍，
+# 既拖长用户等待，也可能造成重复计费。
+_RETRYABLE = (APIConnectionError, APITimeoutError, RateLimitError,
+              InternalServerError)
+
 llm = llm.with_retry(
+    retry_if_exception_type=_RETRYABLE,
     stop_after_attempt=settings.llm_max_attempts,
     wait_exponential_jitter=True,
     exponential_jitter_params={"initial": 0.5, "max": 1.0},

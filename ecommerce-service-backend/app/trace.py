@@ -67,6 +67,8 @@ class TraceMiddleware(BaseHTTPMiddleware):
                         request.url.path,
                         response.status_code,
                         (time.perf_counter() - started) * 1000)
-        response.headers["X-Request-Id"] = trace_id
+        # 健康检查不回头：容器探针不看，外部也不该从这拿到任何信息
+        if request.url.path != "/health":
+            response.headers["X-Request-Id"] = trace_id
         _var.reset(token)
         return response
