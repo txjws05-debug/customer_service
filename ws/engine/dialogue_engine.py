@@ -9,7 +9,7 @@ from ws.domain.message import UserMessage, ProcessResult, MessageType, BotMessag
 from ws.domain.state import DialogueState, Turn, FocusedObject
 from ws.engine.safety import cross_user_refusal
 from ws.knowledge.handle import KnowledgeHandler
-from ws.plan.models import TurnPlan, TurnPlanValidationResult, ClarifyReason
+from ws.plan.models import PlanUnavailable, TurnPlan, TurnPlanValidationResult, ClarifyReason
 from ws.plan.turn_plan import TurnPlanner
 from ws.plan.turn_plan_validation import TurnPlanValidation
 from ws.prompts.history_compactor import maybe_compact_history
@@ -89,10 +89,15 @@ class DialogueEngine:
         if refusal:
             yield refusal
             return
-        turnPlan:TurnPlan=await self._turn_plan.plan(
-            user_message=user_message,state=state,
-            knowledge_intents=self._knowledge_handler.knowledge_intents,
-            flow_catalog=self._task_handler._flow_catalog)
+        try:
+            turnPlan:TurnPlan=await self._turn_plan.plan(
+                user_message=user_message,state=state,
+                knowledge_intents=self._knowledge_handler.knowledge_intents,
+                flow_catalog=self._task_handler._flow_catalog)
+        except PlanUnavailable as exc:
+            # 解析失败 = 没听懂，正常回一句请用户换说法，不是故障
+            yield exc.reply
+            return
         validation:TurnPlanValidationResult=self._turn_plan_validation.validate(
             turn_plan=turnPlan,state=state,
             flow_catalog=self._task_handler._flow_catalog)
@@ -162,10 +167,14 @@ class DialogueEngine:
         #1根据user——message文本提问信息，调用llm，进行意图识别
         #识别执行哪个轨道：任务流程、知识检索、闲聊
         #如果任务流程，识别流程id
-        turnPlan:TurnPlan = await self._turn_plan.plan(user_message=user_message,
-                                                       state=state,
-                                                       knowledge_intents=self._knowledge_handler.knowledge_intents,
-                                                       flow_catalog=self._task_handler._flow_catalog)
+        try:
+            turnPlan:TurnPlan = await self._turn_plan.plan(user_message=user_message,
+                                                           state=state,
+                                                           knowledge_intents=self._knowledge_handler.knowledge_intents,
+                                                           flow_catalog=self._task_handler._flow_catalog)
+        except PlanUnavailable as exc:
+            # 与流式路径一致：这是正常回复，不是 HTTP 错误
+            return [BotMessage(text=exc.reply)]
         #2 对llm意图识别结果校验
         ##如有两个轨道，任务流程识别流程id不存在
         validation:TurnPlanValidationResult=self._turn_plan_validation.validate(turn_plan=turnPlan,

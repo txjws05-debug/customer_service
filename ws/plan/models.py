@@ -20,6 +20,20 @@ class KnowledgeTurnPlan:
     def from_dict(cls,knowledge_data:dict)->"knowledgeTurnPlan":
         return KnowledgeTurnPlan(knowledge_data['intents'])
 
+class PlanUnavailable(Exception):
+    """意图解析失败（连试两次仍拿不到合法 JSON）。
+
+    这不是系统故障，而是一句「我没听懂，请再说一次」的正常回复。
+    以前这里抛 ChatServiceError，路由层把它变成 HTTP 400 ——
+    前端弹错误、用户以为系统坏了、评测也只能记成失败。
+    单独一个异常类型，就是把它和真正的故障（超时、上游 5xx）分开。
+    """
+
+    def __init__(self, reply: str) -> None:
+        super().__init__(reply)
+        self.reply = reply
+
+
 @dataclass
 class ChitchatTurnPlan:
     pass

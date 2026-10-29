@@ -7,7 +7,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 
 from ws.domain.state import DialogueState
-from ws.plan.models import TurnPlan
+from ws.plan.models import PlanUnavailable, TurnPlan
 from ws.prompts.history_builder import HistoryBuilder
 from ws.prompts.loader import load_prompt
 from ws.utils.errors import ChatServiceError
@@ -87,7 +87,10 @@ class TurnPlanner:
                 return TurnPlan.from_dict(result)
             except _PARSE_ERRORS:
                 logger.warning("TurnPlan parse failed again")
-                raise ChatServiceError(
+
+                # 抛专门类型而不是 ChatServiceError：后者会被路由层映射成 400，
+                # 让「请再说一次」看起来像系统故障。
+                raise PlanUnavailable(
                     "我没太理解您的意思，能换个说法再描述一次吗？")
             except Exception as exc:
                 if isinstance(exc, ChatServiceError):
