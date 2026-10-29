@@ -64,11 +64,18 @@ done
 
 [ "$ok" = "1" ] || rollback_again
 
-echo "回滚完成，容器健康。"
+# 容器 healthy 只说明进程活着，不说明业务对 —— 必须再过一遍 smoke。
+# 这才是「回滚成功」的判定标准；不过就自动切回原版本。
+if ! bash "$APP_DIR/deploy/smoke.sh"; then
+    echo "smoke 未通过，本次回滚不算成功" >&2
+    rollback_again
+fi
+
+echo "回滚完成：容器健康 + smoke 全绿。"
 docker ps --format '{{.Names}}\t{{.Status}}' | grep -E "cs-(backend|ecommerce|frontend)"
 cat <<'EOF'
 
-注意：镜像回滚会把 docker cp 进去的热修代码一并还原。
-如果那次修复已提交到 git，重新注入即可：
-  git checkout <分支> && for f in ...; do docker cp ... ; done && docker restart cs-backend
+代码已全部固化在镜像里（deploy/build-local.sh），回滚不需要再手工注入文件。
+若还要更早的版本，先确认它在本机存在：
+  docker images --format '{{.Tag}}' ghcr.io/txjws05-debug/customer-service-api
 EOF
