@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from sqlalchemy import func, select, text
@@ -146,6 +147,31 @@ def test_in_progress_key_is_rejected_not_duplicated(client, db, monkeypatch):
     assert response.status_code == 409, response.text
     assert "正在处理中" in response.json()["message"]
     assert _orders_with_key(db, key) == 0
+
+
+def test_ten_concurrent_requests_create_exactly_one_order(client, db):
+    """文档 C-08 的口径是 10 并发，不是 2 —— 2 路证明不了抢锁顺序。
+
+    10 路同时打同一个键：只允许产生 1 张订单、只扣 1 件库存，
+    其余请求要么回放、要么（极端情况下超时）拿到 409，但绝不能再建单。
+    """
+    key = "idem-10-way-1"
+    _reset_stock(db, 20)
+    before = _stock(db)
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        responses = list(pool.map(lambda _: _place(client, key), range(10)))
+
+    ok = [r for r in responses if r.status_code == 200]
+    rejected = [r for r in responses if r.status_code == 409]
+    assert len(ok) + len(rejected) == 10, [r.status_code for r in responses]
+    assert ok, "至少要有一个请求成功"
+
+    order_ids = {r.json()["data"]["order_id"] for r in ok}
+    assert len(order_ids) == 1, f"同一键必须只有一个订单号，实际 {order_ids}"
+    assert _orders_with_key(db, key) == 1
+    assert _stock(db) == before - 1, "只应扣一件库存"
+    assert _record(db, key)[0] == "succeeded"
 
 
 def test_in_progress_waits_then_replays(db):
