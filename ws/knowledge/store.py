@@ -295,3 +295,53 @@ async def search(query_vector: list[float],
         )
         for row in rows
     ]
+
+
+# ---------------------------------------------------------------- 管理端读取
+# 这三个函数是给运营页面用的：只读字段做裁剪，不返回 embedding
+# （向量列动辄几千个浮点，传出去既没用又慢）。
+
+async def admin_stats() -> dict:
+    async with database.session_factory() as session:
+        total = await session.scalar(text("SELECT count(*) FROM knowledge_chunks"))
+        kinds = await session.execute(text(
+            "SELECT kind, count(*) AS n FROM knowledge_chunks GROUP BY kind ORDER BY kind"))
+        meta = await session.execute(text("SELECT key, value FROM knowledge_meta"))
+        return {
+            "total": int(total or 0),
+            "kinds": [{"kind": row[0], "count": int(row[1])} for row in kinds],
+            "meta": {row[0]: row[1] for row in meta},
+        }
+
+
+async def admin_list(limit: int = 50, offset: int = 0, keyword: str = "") -> dict:
+    async with database.session_factory() as session:
+        params = {"limit": limit, "offset": offset}
+        where = ""
+        if keyword:
+            where = "WHERE title ILIKE :kw OR content ILIKE :kw OR doc_id ILIKE :kw"
+            params["kw"] = f"%{keyword}%"
+        rows = await session.execute(text(
+            "SELECT doc_id, kind, title, source, left(content, 160) "
+            f"FROM knowledge_chunks {where} ORDER BY doc_id LIMIT :limit OFFSET :offset"),
+            params)
+        total = await session.scalar(text(
+            f"SELECT count(*) FROM knowledge_chunks {where}"), params)
+        return {
+            "total": int(total or 0),
+            "items": [
+                {"doc_id": r[0], "kind": r[1], "title": r[2],
+                 "source": r[3], "preview": r[4]}
+                for r in rows
+            ],
+        }
+
+
+async def admin_delete(doc_id: str) -> int:
+    """删一条知识。返回删除行数 —— 0 表示不存在，调用方据此返回 404。"""
+    async with database.session_factory() as session:
+        result = await session.execute(
+            text("DELETE FROM knowledge_chunks WHERE doc_id = :doc_id"),
+            {"doc_id": doc_id})
+        await session.commit()
+        return int(result.rowcount or 0)

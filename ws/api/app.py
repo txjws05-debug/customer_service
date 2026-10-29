@@ -13,6 +13,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from ws.api.auth_router import auth_router
 from ws.api.chat_router import chat_router
 from ws.api.handoff_router import router as handoff_router
+from ws.api.kb_router import router as kb_router
 from ws.config.config import settings
 from ws.engine.builder import build_dailogue_engine
 from ws.knowledge.reindex import ensure_index
@@ -92,6 +93,7 @@ async def health() -> dict:
 app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(handoff_router)
+app.include_router(kb_router)
 
 
 # 业务可预期错误统一返回 400，detail 可直接展示给用户
