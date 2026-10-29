@@ -200,9 +200,6 @@ class FlowExecutor:
         #2foucued_object对象不为空
         #focused_object目前有两种 order product
         #对象类型 order
-        if (step.solt_name=='order_number' and state.share.focuse_object.type=='order'):
-            state.tasks.active.slots.update({step.solt_name:state.share.focuse_object.id})
-            return
-        if(step.solt_name=='product_id' and state.share.focuse_object.type=='product'):
-            state.tasks.active.slots.update({step.solt_name:state.share.focuse_object.id})
-            return
+        value = state.share.focuse_object.value_for_slot(step.solt_name)
+        if value:
+            state.tasks.active.slots.update({step.solt_name: value})

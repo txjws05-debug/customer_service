@@ -72,11 +72,7 @@ class ClarifyResponder:
 
     def _input(self, state, user_message, reason) -> dict:
         focused = state.share.focuse_object
-        focused_text = ""
-        if focused:
-            focused_text = (
-                f"{focused.type} {focused.id}"
-                f" {focused.title or ''}".rstrip())
+        focused_text = focused.label() if focused else ""
         return {
             "reason": reason.value,
             "clarify_message":

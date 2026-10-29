@@ -114,10 +114,8 @@ class DialogueEngine:
                              state:DialogueState)->AsyncIterator[str]:
         state.share.focuse_object=FocusedObject(**asdict(user_message.object))
         if self._can_fill_slots(state):
-            if user_message.object.type=='order':
-                slots={'order_number':user_message.object.id}
-            else:
-                slots={'product_id':user_message.object.id}
+            # 槽位映射只在 FocusedObject 里定义一次，未知类型不填任何槽位
+            slots = state.share.focuse_object.slot_payload()
             command=SetSlotsCommand(command='set_slots',slots=slots)
             async for d in self._task_handler.stream(
                     commands=[command],state=state,user_message=user_message):
@@ -201,10 +199,7 @@ class DialogueEngine:
         )
         #判断是否填充槽位数据
         if self._can_fill_slots(state):
-            if user_message.object.type=='order':
-                slots={'order_number':user_message.object.id}
-            else :
-                slots={'product_id':user_message.object.id}
+            slots = state.share.focuse_object.slot_payload()
         # 最终调TaskHandler里面方法，传入command对象，对象类型消息处理
         #没有调用意图识别组件，没有command
         #手动构建command对象设置对应类型
@@ -242,12 +237,9 @@ class DialogueEngine:
         if not isinstance(step,CollectSlotStep):
             return False
 
-        if(step.solt_name=='order_number') and(state.share.focuse_object.type=='order'):
-            return True
-
-        if (step.solt_name=='product_id')and (state.share.focuse_object.type=='product'):
-            return True
-        return False
+        # 当前步骤要的槽位，恰好是焦点对象能提供的那一个吗
+        slot = state.share.focuse_object.value_for_slot(step.solt_name)
+        return slot is not None
 
 
 

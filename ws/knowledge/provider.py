@@ -47,12 +47,15 @@ class ApiProductProvider(KnowledgeProvider):
                        state: DialogueState) -> list[KnowledgeChunk]:
         # 设计：页面中直接发送商品类型对象，执行当前这条线
         focused = state.share.focuse_object
-        if getattr(focused, "type", "") != "product":
+        # 类型判断交给 FocusedObject：焦点停在订单上时这里拿不到 id，
+        # 不会再出现「拿订单号去查商品」的串号问题
+        product_id = focused.product_id() if focused else None
+        if product_id is None:
             raise ChatServiceError(
                 "请先在页面选择要咨询的商品，再向我提问。")
 
         data = await get_api_data(
-            f"{settings.commerce_api_base_url}/products/{focused.id}")
+            f"{settings.commerce_api_base_url}/products/{product_id}")
 
         chunk = json.dumps(data, ensure_ascii=False)
         return [KnowledgeChunk(content=chunk)]
@@ -66,16 +69,17 @@ class ApiOrderProvider(KnowledgeProvider):
                        user_message: UserMessage,
                        state: DialogueState) -> list[KnowledgeChunk]:
         focused = state.share.focuse_object
-        if getattr(focused, "type", "") != "order":
+        order_id = focused.order_id() if focused else None
+        if order_id is None:
             raise ChatServiceError(
                 "请先在页面选择要咨询的订单，再向我提问。")
 
         # 调用查询订单详情接口
         order_url = (f"{settings.commerce_api_base_url}"
-                     f"/orders/{focused.id}")
+                     f"/orders/{order_id}")
         # 调用查询订单物流接口
         logis_url = (f"{settings.commerce_api_base_url}"
-                     f"/orders/{focused.id}/logistics")
+                     f"/orders/{order_id}/logistics")
 
         order_detail, logis_detail = await asyncio.gather(
             get_api_data(order_url),

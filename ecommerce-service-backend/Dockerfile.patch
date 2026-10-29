@@ -1,15 +1,11 @@
-# 中台补丁镜像：底座是线上运行的镜像，只覆盖鉴权相关文件。
+# 中台补丁镜像：以线上运行的镜像为底座，整体覆盖 app 目录。
+#
+# 整目录而非逐文件：逐文件清单在加模块时极易漏（本项目已经漏过一次），
+# 而 app/ 本身很小，整目录覆盖更省心也更安全。
+#
 # 注意：本文件必须放在 ecommerce-service-backend/ 下，因为仓库根的 .dockerignore
-# 把整个 ecommerce-service-backend 目录排除了，用它做上下文会 COPY 不到文件。
+# 把整个 ecommerce-service-backend 目录排除了，用根目录做上下文会 COPY 不到。
 ARG BASE=ghcr.io/txjws05-debug/customer-service-ecommerce:b1d4aff645e411213f4ba75357778127f2421306
 FROM ${BASE}
 
-COPY app/app.py          /app/app/app.py
-COPY app/config.py       /app/app/config.py
-COPY app/models.py       /app/app/models.py
-COPY app/shop_api.py     /app/app/shop_api.py
-COPY app/shop_service.py /app/app/shop_service.py
-COPY app/init_data.py    /app/app/init_data.py
-COPY app/security.py     /app/app/security.py
-COPY app/trace.py        /app/app/trace.py
-COPY app/ownership.py    /app/app/ownership.py
+COPY app /app/app

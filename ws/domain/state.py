@@ -25,13 +25,61 @@ class Session:
     # 早期对话的压缩摘要与已摘要轮数：上下文过长时用摘要替代旧原文
     history_summary: str = ""
     summarized_turn_count: int = 0
-#对象类型消息
+# 对象类型消息。
+#
+# 这里是「对话层与业务实体」的唯一接触面：对话层只说「我指的是某个 kind 的
+# 某个 id」，至于这个 id 能不能当商品号/订单号用，由这里回答，别处不许自己猜。
+#
+# 曾经的写法是调用方各写一遍 `if obj.type == 'order' ... else 商品号`，
+# 结果「既不是订单也不是商品」的对象（优惠券、未知类型）会被当成商品号去查商品，
+# 表现就是线上那句「商品 SO2026… 不存在」。这类判断只能有一处。
+KIND_PRODUCT = "product"
+KIND_ORDER = "order"
+KIND_UNKNOWN = "unknown"
+
+# kind -> 流程槽位名。新增业务对象时只改这张表。
+SLOT_BY_KIND: dict[str, str] = {
+    KIND_ORDER: "order_number",
+    KIND_PRODUCT: "product_id",
+}
+
+
 @dataclass
 class FocusedObject:
     type: str
     id: str
     title :str | None = None
     attributes:dict=field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # 历史数据里 type 可能带空格/大小写不一致，读进来就归一
+        self.type = (self.type or "").strip().lower()
+
+    @property
+    def kind(self) -> str:
+        """受限的类型：只有登记在 SLOT_BY_KIND 里的才算已知对象。"""
+        return self.type if self.type in SLOT_BY_KIND else KIND_UNKNOWN
+
+    def is_kind(self, kind: str) -> bool:
+        return self.kind == kind
+
+    def product_id(self) -> str | None:
+        return self.id if self.kind == KIND_PRODUCT else None
+
+    def order_id(self) -> str | None:
+        return self.id if self.kind == KIND_ORDER else None
+
+    def slot_payload(self) -> dict:
+        """能直接填进流程槽位的数据；类型不认识时返回空字典，绝不瞎填。"""
+        slot = SLOT_BY_KIND.get(self.kind)
+        return {slot: self.id} if slot and self.id else {}
+
+    def value_for_slot(self, slot_name: str) -> str | None:
+        return self.id if SLOT_BY_KIND.get(self.kind) == slot_name else None
+
+    def label(self) -> str:
+        """给提示词用的一句话描述。"""
+        return f"{self.kind} {self.id} {self.title or ''}".strip()
 
 @dataclass
 class SharedState:
