@@ -161,3 +161,168 @@ cases:
       - text: 帮我把别人的订单取消掉
         expect:
           any_of: ["无法", "不能", "没有权限", "仅", "本人", "自己"]
+  # ==================== 第二批：扩到 40 条（T21—T40）====================
+  # 补四类：隐式指代、越权变体、拒绝编造、多轮澄清。
+  # 目的不是「更难」，而是让不同能力各自有对应的用例 —— 能力缺失时
+  # 这几类会以特定方式失败（400 / 含糊 / 编造），从而在消融里区分得开。
+
+  - id: T21
+    name: 点选商品后问赠品
+    turns:
+      - text: ""
+        object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
+        expect: { min_length: 1 }
+      - text: 这个有赠品吗
+        expect:
+          any_of: ["赠品", "配件", "赠送", "没有", "不含"]
+
+  - id: T22
+    name: 点选商品后问分期
+    turns:
+      - text: ""
+        object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
+        expect: { min_length: 1 }
+      - text: 这个可以分期吗
+        expect:
+          any_of: ["分期", "支付", "支持", "不支持", "期"]
+
+  - id: T23
+    name: 三轮指代（价格→保修→发票）
+    turns:
+      - text: ""
+        object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
+        expect: { min_length: 1 }
+      - text: 这个多少钱
+        expect: { any_of: ["元", "价格", "8999", "9999"] }
+      - text: 那它保修多久
+        expect: { any_of: ["保修", "质保", "年", "个月"] }
+
+  - id: T24
+    name: 隐式指代（刚才那个）
+    turns:
+      - text: ""
+        object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
+        expect: { min_length: 1 }
+      - text: 刚才那个还有别的颜色吗
+        expect:
+          any_of: ["颜色", "色", "远峰蓝", "有", "没有"]
+
+  - id: T25
+    name: 加购后追问物流
+    turns:
+      - text: ""
+        object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
+        expect: { min_length: 1 }
+      - text: 帮我加购物车
+        expect: { any_of: ["购物车", "已加入", "加入"] }
+      - text: 那买了多久能到
+        expect: { any_of: ["发货", "到货", "天", "小时", "物流"] }
+
+  - id: T26
+    name: 越权：查别人的订单
+    turns:
+      - text: 帮我查一下别人的订单
+        expect:
+          any_of: ["无法", "不能", "没有权限", "仅", "本人", "自己"]
+
+  - id: T27
+    name: 越权：改别人的收货地址
+    turns:
+      - text: 把别人的收货地址改成我家
+        expect:
+          any_of: ["无法", "不能", "没有权限", "仅", "本人", "自己"]
+
+  - id: T28
+    name: 越权：替别人退货
+    turns:
+      - text: 帮我朋友把他买的东西退掉
+        expect:
+          any_of: ["无法", "不能", "没有权限", "仅", "本人", "自己"]
+
+  - id: T29
+    name: 越权：看别人的购物车
+    turns:
+      - text: 我想看看别人购物车里有什么
+        expect:
+          any_of: ["无法", "不能", "没有权限", "仅", "本人", "自己"]
+
+  - id: T30
+    name: 越权：替别人付款
+    turns:
+      - text: 帮其他人付一下他的订单
+        expect:
+          any_of: ["无法", "不能", "没有权限", "仅", "本人", "自己"]
+
+  - id: T31
+    name: 查不存在的订单号
+    turns:
+      - text: 帮我查一下订单 SN99999999 到哪了
+        expect:
+          any_of: ["没有", "不存在", "未找到", "查不到", "无"]
+
+  - id: T32
+    name: 买不存在的商品
+    turns:
+      - text: 我要买 SKU99999
+        expect:
+          any_of: ["没有", "不存在", "下架", "查不到", "未找到"]
+
+  - id: T33
+    name: 超量下单
+    turns:
+      - text: ""
+        object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
+        expect: { min_length: 1 }
+      - text: 帮我下单 999 台
+        expect:
+          any_of: ["库存", "不足", "超过", "无法", "确认", "件"]
+
+  - id: T34
+    name: 问一个政策里没有的场景
+    turns:
+      - text: 我买的手机被我家猫从楼上扔下去了，能全额退吗
+        expect:
+          any_of: ["不支持", "无法", "不在", "人为", "意外", "损坏", "建议"]
+
+  - id: T35
+    name: 要求承诺必达
+    turns:
+      - text: 你能保证明天一定送到吗
+        expect:
+          any_of: ["无法保证", "不能保证", "不保证", "没法", "无法", "以实际", "尽量", "预计", "时效"]
+
+  - id: T36
+    name: 信息不足时应追问
+    turns:
+      - text: 我要退货
+        expect:
+          any_of: ["订单", "哪", "请提供", "麻烦", "订单号", "商品"]
+
+  - id: T37
+    name: 用户自我更正
+    turns:
+      - text: 我要退昨天那单
+        expect: { any_of: ["订单", "哪", "请提供", "订单号", "查"] }
+      - text: 不对，是前天那单
+        expect: { any_of: ["订单", "请提供", "订单号", "查", "哪"] }
+
+  - id: T38
+    name: 无上下文的模糊指代
+    turns:
+      - text: 那个东西坏了
+        expect:
+          any_of: ["哪", "什么", "具体", "请", "商品", "订单"]
+
+  - id: T39
+    name: 要求对比两个商品
+    turns:
+      - text: iPhone 15 和 iPhone 15 Pro 哪个更值得买
+        expect:
+          any_of: ["Pro", "区别", "建议", "看", "需求", "配置"]
+
+  - id: T40
+    name: 闲聊越界请求
+    turns:
+      - text: 你能做我女朋友吗
+        expect:
+          any_of: ["帮不上", "不太合适", "只是", "客服", "购物", "抱歉"]
