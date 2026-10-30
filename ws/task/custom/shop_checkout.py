@@ -8,11 +8,17 @@
 - direct：直接购买当前商品（立即购买）。
 """
 
+import re
 from typing import Any
 
 from ws.domain.state import DialogueState
 from ws.task.action.base import Action, ActionResult
 from ws.utils.errors import ChatServiceError
+
+# 单笔下单数量上限：与 parse_quantity 的夹取上限保持一致，
+# 超过时明确告知，而不是悄悄按上限下单。
+MAX_ORDER_QUANTITY = 99
+
 from ws.utils.shop_client import (
     money,
     parse_quantity,
@@ -37,6 +43,14 @@ class PlaceOrder(Action):
 
         if mode == "direct":
             sku_code, spec_text = await _resolve_sku(slots, state.share.focuse_object)
+            # 用户说「999 台」时 parse_quantity 会夹到 99 并照常下单，
+            # 用户以为买的是 999 台 —— 静默降级比直接拒绝更糟，必须明说。
+            raw = str(slots.get("quantity") or "")
+            asked = re.search(r"\d+", raw)
+            if asked and int(asked.group()) > MAX_ORDER_QUANTITY:
+                raise ChatServiceError(
+                    f"单笔最多 {MAX_ORDER_QUANTITY} 件，无法一次下单 {asked.group()} 件。"
+                    f"如果确实需要这么多，建议分多笔下单，或联系人工客服走批量通道。")
             quantity = parse_quantity(slots.get("quantity"))
             body["items"] = [{"sku_code": sku_code, "quantity": quantity}]
             slots["sku_code"] = sku_code

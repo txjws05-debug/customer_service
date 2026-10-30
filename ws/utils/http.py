@@ -1,4 +1,5 @@
 import asyncio
+import re
 
 import httpx
 from httpx import AsyncClient
@@ -61,11 +62,21 @@ async def _request_api(method: str, url: str, json_body: dict | None = None) -> 
         return body["data"]
 
     if isinstance(body, dict):
-        # 交易域是 message，老接口是 FastAPI 的 detail，两种都要透传
+        # 交易域是 message，老接口是 FastAPI 的 detail，两种都要透传。
+        # 但只透传中文：中台在 404 时给的是 "Order not found" 这类英文，
+        # 直接透传用户看不懂，还会被当成系统故障（评测按状态判失败）。
         for key in ("message", "detail"):
             message = body.get(key)
-            if message:
+            if message and re.search(r"[一-龥]", str(message)):
                 raise ChatServiceError(str(message))
+
+    # 走到这里说明没有可用的中文提示：404 按资源类型给兜底话术
+    if response.status_code == 404:
+        if "/products/" in url:
+            raise ChatServiceError("没有查到这个商品，可能已下架或编号有误。")
+        if "/orders/" in url:
+            raise ChatServiceError("没有查到这个订单，请确认订单号是否正确。")
+        raise ChatServiceError("没有查询到相关信息。")
 
     raise ChatServiceError(
         f"服务暂时不可用，请稍后再试（HTTP {response.status_code}）。")

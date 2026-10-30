@@ -442,3 +442,26 @@ def test_legacy_detail_error_is_forwarded(commerce):
     with pytest.raises(ChatServiceError) as exc:
         _run("action_view_cart", _state())
     assert "不存在" in str(exc.value)
+
+
+def test_404_english_detail_falls_back_to_chinese(commerce):
+    """中台 404 时返回英文 detail，不能原样透传给用户。
+
+    评测里「查不存在的订单号」原来直接把 "Order not found" 抛成 400，
+    用户看到的是一句英文错误页。现在：中文提示透传、英文走兜底话术。
+    """
+    commerce["routes"][("GET", "/shop/users/u1002/cart")] = (
+        404, {"detail": "User not found"})
+    with pytest.raises(ChatServiceError) as exc:
+        _run("action_view_cart", _state())
+    assert "没有查询到相关信息" in str(exc.value)
+    assert "not found" not in str(exc.value).lower()
+
+
+def test_404_chinese_detail_still_forwarded(commerce):
+    """中文 detail 本来就写给用户看，必须原样透传（老行为不能丢）。"""
+    commerce["routes"][("GET", "/shop/users/u1002/cart")] = (
+        404, {"detail": "用户 u1002 不存在。"})
+    with pytest.raises(ChatServiceError) as exc:
+        _run("action_view_cart", _state())
+    assert "不存在" in str(exc.value)

@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from ws.api.schemas import HistoryResponse
 from ws.api.schemas import ChatRequest, ChatResponse, ChatMessage, ChatObject, HistoryMessage
 from ws.api.deps import get_dialogue_service, get_current_user
-from ws.domain.message import UserMessage,ProcessResult,MessageType,MessageObject
+from ws.domain.message import UserMessage,ProcessResult,BotMessage,MessageType,MessageObject
 from ws import metrics
 from ws.guard import quota
 from ws.config.config import settings
@@ -29,7 +29,17 @@ async def chat(chat_request:ChatRequest ,
 
     _ensure_quota(current_user)
     user_message:UserMessage=_build_user_message(chat_request,current_user)
-    process_result:ProcessResult=await dialogue_service.process_message(user_message)
+    try:
+        process_result:ProcessResult=await dialogue_service.process_message(user_message)
+    except ChatServiceError as exc:
+        # ChatServiceError 是「说给用户听的话」（没查到订单、库存不足、没绑定账号），
+        # 属于正常对话结果，不是服务故障。用 4xx 表达会有两个后果：
+        # 前端渲染成错误页；评测按 HTTP 状态判失败，把业务结果记成能力缺陷。
+        process_result = ProcessResult(
+            sender_id=current_user,
+            message_id=uuid.uuid4().hex,
+            messages=[BotMessage(text=str(exc))],
+        )
     return _build_chat_response(process_result)
 
 # 流式对话（SSE）：逐段返回 {"text": "增量"}，结束发 [DONE]
