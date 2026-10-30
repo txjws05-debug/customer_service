@@ -30,4 +30,5 @@ docker run --rm --network container:cs-backend \
   --cases tools/task_cases.yaml \
   --json /src/task_eval_report.json \
   --commerce-url http://ecommerce:18081 \
+  --reset-stock \
   "$@"

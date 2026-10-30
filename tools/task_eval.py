@@ -88,6 +88,61 @@ def reset_cart(commerce_url: str, service_token: str, shop_user: str) -> int:
     return removed
 
 
+def snapshot_stock(commerce_url: str, service_token: str) -> dict[str, int]:
+    """把当前所有规格的库存记下来，供跑完还原。
+
+    为什么用「快照 + 还原」而不是写死一个基线：写死基线等于用测试脚本
+    覆盖真实业务数据，一旦有人真买过东西，还原就会把库存改回去。
+    快照只保证「这次评测没留下影响」，不假设库存应该等于多少。
+    """
+    if not commerce_url or not service_token:
+        return {}
+    headers = {"X-Service-Token": service_token, "Content-Type": "application/json"}
+    out: dict[str, int] = {}
+
+    # 接口限制 page_size <= 50，所以要翻页；写死 100 会直接 422（踩过）。
+    page, page_size = 1, 50
+    while page <= 20:
+        status, data = _call(
+            "GET", f"{commerce_url}/shop/products?page_size={page_size}&page={page}",
+            headers)
+        if status != 200:
+            print(f"库存快照失败（{status}），跳过还原：{str(data)[:80]}")
+            return {}
+        items = (data.get("data") or {}).get("items") or []
+        if not items:
+            break
+        for product in items:
+            pid = product.get("product_id")
+            if not pid:
+                continue
+            status, detail = _call("GET", f"{commerce_url}/shop/products/{pid}", headers)
+            if status != 200:
+                continue
+            for sku in (detail.get("data") or {}).get("skus") or []:
+                code = sku.get("sku_code")
+                if code:
+                    out[code] = int(sku.get("stock", 0))
+        if len(items) < page_size:
+            break
+        page += 1
+    return out
+
+
+def restore_stock(commerce_url: str, service_token: str,
+                  before: dict[str, int]) -> list[str]:
+    """把被本轮改动过的规格库存改回去，返回被还原的规格。"""
+    if not before:
+        return []
+    headers = {"X-Service-Token": service_token, "Content-Type": "application/json"}
+    after = snapshot_stock(commerce_url, service_token)
+    changed = [code for code, stock in before.items() if after.get(code) != stock]
+    for code in changed:
+        _call("PATCH", f"{commerce_url}/shop/admin/skus/{code}/stock", headers,
+              {"stock": before[code], "reason": "评测结束还原"})
+    return changed
+
+
 def register(base: str, username: str, password: str) -> str:
     status, data = _post(f"{base}/api/auth/register",
                          {"username": username, "password": password})
@@ -181,6 +236,8 @@ def main() -> int:
                         help="中台服务令牌，默认取环境变量 COMMERCE_SERVICE_TOKEN")
     parser.add_argument("--shop-user", default=os.getenv("COMMERCE_DEFAULT_USER_ID", "u1001"),
                         help="评测账号实际对应的商城账号号")
+    parser.add_argument("--reset-stock", action="store_true",
+                        help="跑前快照库存、跑完还原（用例若下单会消耗库存）")
     args = parser.parse_args()
 
     cases = yaml.safe_load(Path(args.cases).read_text(encoding="utf-8"))["cases"]
@@ -194,16 +251,28 @@ def main() -> int:
         print(f"已清空评测购物车 {removed} 条（避免上一轮残留影响本轮）")
     print(f"评测账号 {username}，用例 {len(cases)} 条，目标 {args.base_url}")
 
+    stock_before = {}
+    if args.reset_stock:
+        stock_before = snapshot_stock(args.commerce_url, args.commerce_token)
+        print(f"库存快照 {len(stock_before)} 个规格（跑完还原改动）")
+
     results = []
-    for case in cases:
-        result = run_case(args.base_url, token, case)
-        results.append(result)
-        if not args.quiet:
-            flag = "PASS" if result["passed"] else "FAIL"
-            print(f"[{flag}] {result['id']} {result['name']} "
-                  f"({result['turns']} 轮, {result['cost_s']}s)")
-            for reason in result["failures"]:
-                print(f"       - {reason}")
+    try:
+        for case in cases:
+            result = run_case(args.base_url, token, case)
+            results.append(result)
+            if not args.quiet:
+                flag = "PASS" if result["passed"] else "FAIL"
+                print(f"[{flag}] {result['id']} {result['name']} "
+                      f"({result['turns']} 轮, {result['cost_s']}s)")
+                for reason in result["failures"]:
+                    print(f"       - {reason}")
+    finally:
+        # 放在 finally：评测中途异常也要把库存还原，
+        # 否则一次失败会留下一份被改过的库存，污染下一轮
+        if stock_before:
+            changed = restore_stock(args.commerce_url, args.commerce_token, stock_before)
+            print(f"库存还原：{'、'.join(changed) if changed else '无改动'}")
 
     passed = sum(1 for r in results if r["passed"])
     rate = passed / len(results) if results else 0.0
