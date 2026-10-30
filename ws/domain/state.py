@@ -3,6 +3,7 @@ import uuid
 from dataclasses import dataclass,field
 
 
+from ws.config.config import settings
 from ws.domain.message import UserMessage,BotMessage
 from ws.task.lifecycle.models import TaskEvent, TaskSwitched, TaskStarted, TaskRef, TaskCanceled, TaskResumed
 
@@ -58,6 +59,9 @@ class FocusedObject:
     @property
     def kind(self) -> str:
         """受限的类型：只有登记在 SLOT_BY_KIND 里的才算已知对象。"""
+        if settings.ablate_focus:
+            # 消融实验：退化为「不区分对象类型」，用于度量类型化的独立贡献。
+            return KIND_UNKNOWN
         return self.type if self.type in SLOT_BY_KIND else KIND_UNKNOWN
 
     def is_kind(self, kind: str) -> bool:

@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import re
 
+from ws.config.config import settings
+
 # 指向他人的说法
 _OTHER = r"(别人|他人|其他人|别的用户|其他用户|朋友的账号|他的|她的|ta的|TA的)"
 # 他人的资产
@@ -35,6 +37,10 @@ REFUSAL_MESSAGE = (
 
 def cross_user_refusal(text: str | None) -> str | None:
     """命中越权意图时返回固定的拒绝话术，否则返回 None。"""
+    if settings.ablate_safety:
+        # 消融实验：跳过规则拦截，用于度量「越权拦截」这一能力的独立贡献。
+        # 只允许在评测时打开，生产环境保持 False。
+        return None
     if not text:
         return None
     normalized = text.strip()

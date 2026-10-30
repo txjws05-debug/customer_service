@@ -43,3 +43,7 @@ deploy/.env
 deploy/backend.env
 deploy/ecommerce.env
 ecommerce-service-backend/.env
+# 评测原始产物不入库
+eval_runs/
+task_eval_report.json
+_t20_report.json

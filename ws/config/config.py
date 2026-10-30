@@ -99,6 +99,12 @@ class Settings(BaseSettings):
             return None
         return value
 
+    # ---------- 消融实验开关（仅评测用） ----------
+    # 置 True 即关闭对应能力，用来构造对照组、度量该能力的独立贡献。
+    # 生产环境必须保持 False；实验设计与用法见 docs/09-实验方案.md。
+    ablate_focus: bool = False
+    ablate_safety: bool = False
+
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra='ignore')
 
 
