@@ -8,13 +8,13 @@
 #
 # 为什么不放在应用启动时：
 # - 迁移失败必须「停下来」，不能像 create_all 那样静默继续启动；
-# - 多副本时启动即迁移会并发抢 DDL 锁；
-# - 这台机器访问不了 PyPI，所以 alembic 用离线 wheel 装进一次性容器，
-#   不污染线上镜像（正式 CI 构建时 alembic 已在依赖里）。
+# - 多副本时启动即迁移会并发抢 DDL 锁。
+#
+# alembic 在镜像的依赖里（2026-10-30 起完整构建自带 1.20.1），
+# 不再需要从 /opt/wheels 离线安装 —— 那段临时方案随完整镜像退役。
 set -euo pipefail
 
 APP_DIR=${APP_DIR:-/opt/customer_service}
-WHEELS=${WHEELS:-/opt/wheels}
 CMD=${1:-"upgrade head"}
 
 TAG=$(sed -n 's/^IMAGE_TAG=//p' "$APP_DIR/deploy/.env" | head -1)
@@ -27,12 +27,7 @@ DB_URL=$(sed -n 's/^DATABASE_URL=//p' "$APP_DIR/deploy/ecommerce.env" | head -1)
 echo "== 镜像 $IMAGE ｜ 执行：alembic $CMD =="
 docker run --rm \
   --network container:cs-ecommerce \
-  -v "$APP_DIR:/src" -v "$WHEELS:/wheels" \
+  -v "$APP_DIR:/src" \
   -w /src/ecommerce-service-backend \
   -e DATABASE_URL="$DB_URL" \
-  --entrypoint /bin/sh "$IMAGE" -c "
-set -e
-pip install -q --no-index --find-links=/wheels \
-  --target=/app/.venv/lib/python3.12/site-packages alembic Mako MarkupSafe 2>&1 | grep -v 'already exists' || true
-/app/.venv/bin/python -m alembic $CMD
-"
+  --entrypoint /app/.venv/bin/python "$IMAGE" -m alembic $CMD
