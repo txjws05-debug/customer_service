@@ -6,6 +6,9 @@
 # 2. 环境文件含密钥，单独打包并 chmod 600 —— 丢了 env 比丢库更难恢复
 #    （JWT_SECRET_KEY 变了所有人要重登，POSTGRES_PASSWORD 改了老库不认）；
 # 3. 保留策略按「成功批次数」而不是文件时间：备份失败那天不该占掉一个位置。
+#
+# 时间戳可由 BACKUP_STAMP 注入（格式 YYYYMMDD-HHMMSS），用于回放与验证 ——
+# 否则「连续 7 天」这种策略只能靠真等 7 天，等于永远没人验证。
 set -euo pipefail
 
 APP_DIR=${APP_DIR:-/opt/customer_service}
@@ -14,7 +17,7 @@ PG=${PG_CONTAINER:-cs-postgres}
 PGUSER=${PG_USER:-cs}
 KEEP_BATCHES=${KEEP_BATCHES:-7}
 
-STAMP=$(date +%Y%m%d-%H%M%S)
+STAMP=${BACKUP_STAMP:-$(date +%Y%m%d-%H%M%S)}
 mkdir -p "$BK_DIR"
 chmod 700 "$BK_DIR"
 
@@ -44,9 +47,23 @@ chmod 600 "$BK_DIR"/*.gz
 
 echo "$STAMP" > "$BK_DIR/.last_success"
 
-# 按批保留：每批 2 个 sql + 1 个 env
-ls -1t "$BK_DIR"/*.sql.gz 2>/dev/null | tail -n +$((KEEP_BATCHES * 2 + 1)) | xargs -r rm -f
-ls -1t "$BK_DIR"/env-*.tar.gz 2>/dev/null | tail -n +$((KEEP_BATCHES + 1)) | xargs -r rm -f
+# 按批保留。
+#
+# 这里按**文件名里的时间戳**排序，不用 `ls -t`：同一秒内生成的文件 mtime 会打平，
+# 排序结果不确定，极端情况下会把新批次当成旧的删掉。文件名里的 stamp 是零填充的，
+# 字典序即时间序，且与文件系统时间无关。
+prune_old_batches() {
+    local keep=$1 index=0 stamp
+    while read -r stamp; do
+        [ -n "$stamp" ] || continue
+        index=$((index + 1))
+        [ "$index" -le "$keep" ] && continue
+        rm -f "$BK_DIR"/*-"$stamp".sql.gz "$BK_DIR"/env-"$stamp".tar.gz
+    done < <(ls -1 "$BK_DIR" 2>/dev/null \
+             | sed -n 's/.*-\([0-9]\{8\}-[0-9]\{6\}\)\.\(sql\|tar\)\.gz$/\1/p' \
+             | sort -ru)
+}
+prune_old_batches "$KEEP_BATCHES"
 
 total=$(du -sh "$BK_DIR" | cut -f1)
 echo "备份完成 stamp=$STAMP 文件=$((${#written[@]} + 1)) 个 目录用量=$total"
