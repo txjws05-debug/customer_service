@@ -47,5 +47,9 @@ class Settings:
     # 生产环境默认关闭 /docs，避免把全部接口形状暴露在公网
     expose_docs: bool = _env_bool("EXPOSE_DOCS", True)
 
+    # /metrics 的访问令牌：为空则不校验（仅限内网）。指标会暴露路径、错误率、
+    # 耗时分布，等于系统的运行画像，不该裸奔。
+    metrics_token: str = os.getenv("METRICS_TOKEN", "").strip()
+
 
 settings = Settings()

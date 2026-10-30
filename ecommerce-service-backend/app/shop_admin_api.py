@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app import admin_service as admin
+from app import audit
 from app import after_sale_service as after_sale
 from app import cache
 from app.database import get_db
@@ -146,6 +147,21 @@ def create_coupon(payload: CouponCreateRequest, db: Session = Depends(get_db)):
 def grant_coupon(code: str, payload: CouponGrantRequest,
                  db: Session = Depends(get_db)):
     return _wrap(admin.grant_coupon(db, code, payload.user_ids))
+
+
+# ============================================================ 审计
+@router.get("/audit", response_model=ApiResponse, tags=["运营-审计"],
+            summary="操作审计：谁在什么时候改了什么（可按操作者/动作/状态过滤）")
+def audit_logs(
+    actor: str | None = Query(default=None, description="服务名 / operator / 登录名"),
+    action: str | None = Query(default=None, description="如 POST /shop/orders"),
+    status: int | None = Query(default=None, description="按响应状态码过滤，如 403"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    return _wrap(audit.list_logs(db, actor=actor, action=action,
+                                 status=status, limit=limit, offset=offset))
 
 
 # ============================================================ 看板

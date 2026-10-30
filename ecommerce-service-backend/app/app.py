@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import hmac
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
 
-from app import cache
+from app import cache, metrics
 from app.api import router
+from app.audit import AuditMiddleware
 from app.shop_admin_api import router as shop_admin_router
 from app.shop_after_sale_api import router as shop_after_sale_router
 from app.shop_api import router as shop_router
@@ -120,11 +122,30 @@ app = FastAPI(
 )
 
 # 鉴权挂中间件：一次覆盖全部路由（含以后新增的），也才能在服务层拿到身份
+# 先加审计、再加鉴权 → 运行时顺序是 鉴权 → 审计 → 路由，
+# 审计才能拿到已解析的身份（挂反了就全是 anonymous）
+app.add_middleware(AuditMiddleware)
 app.add_middleware(AuthMiddleware)
 # 后添加的在外层：trace 要包住鉴权，401/403 的日志也得有 id
 app.add_middleware(TraceMiddleware)
 
 app.include_router(router)
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics_endpoint(request: Request):
+    """Prometheus 抓取端点。
+
+    只在内网暴露（Caddy 不转发 /metrics，公网 404），另可用 METRICS_TOKEN
+    做 Bearer 校验 —— 指标里有路径、错误率、耗时分布，等于运行画像。
+    """
+    expected = settings.metrics_token
+    if expected:
+        got = (request.headers.get("authorization") or "").removeprefix("Bearer ").strip()
+        if not hmac.compare_digest(got.encode(), expected.encode()):
+            raise HTTPException(status_code=401, detail="metrics 需要访问令牌")
+    return PlainTextResponse(metrics.render(),
+                             media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 @app.get("/health", tags=["系统"], summary="健康检查（匿名）")

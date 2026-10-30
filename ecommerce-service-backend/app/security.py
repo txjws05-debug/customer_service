@@ -38,7 +38,7 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 # 匿名也允许的路径：健康检查 + 商品只读（首页与商品详情不登录也能看）
-_PUBLIC_EXACT = {"/", "/health", "/openapi.json", "/docs", "/redoc"}
+_PUBLIC_EXACT = {"/", "/health", "/openapi.json", "/docs", "/redoc", "/metrics"}
 _PUBLIC_PREFIXES = ("/docs", "/redoc")
 _PUBLIC_READ = {"/shop/products", "/shop/categories"}
 
@@ -135,6 +135,17 @@ def resolve(request: Request) -> AuthContext:
     return ANONYMOUS
 
 
+def _audit_deny(request: Request, ctx: "AuthContext", status: int) -> None:
+    """被拒的请求也要留痕 —— 越权尝试比正常操作更值得查。"""
+    from app import audit
+    from app.trace import current_trace_id
+
+    audit.record(trace_id=current_trace_id(), actor_kind=ctx.kind,
+                 actor=ctx.subject or "", method=request.method,
+                 path=request.url.path, status=status, duration_ms=0,
+                 ip=request.client.host if request.client else None)
+
+
 def _deny(status: int, message: str) -> JSONResponse:
     return JSONResponse(status_code=status,
                         content={"code": status, "message": message, "data": None})
@@ -160,6 +171,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             mode = settings.auth_enforce
             if ctx.kind == "anonymous":
                 if mode == "on":
+                    _audit_deny(request, ctx, 401)
                     return _deny(401, "缺少或无效的访问凭证")
                 if mode == "warn":
                     logger.warning("AUTH_WARN 匿名放行 %s %s", request.method, path)
@@ -168,6 +180,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if settings.auth_enforce == "on" and path.startswith("/shop/admin") \
                     and not ctx.is_privileged:
                 logger.warning("AUTH 运营端越权 path=%s kind=%s", path, ctx.kind)
+                _audit_deny(request, ctx, 403)
                 return _deny(403, "需要运营权限")
             return await call_next(request)
         finally:

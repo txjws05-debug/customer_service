@@ -459,3 +459,33 @@ class IdempotencyKey(Base):
     lease_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+# ============================================================ 审计
+class AuditLog(Base):
+    """操作审计。语义见 app/audit.py。
+
+    只记写操作、不记请求体：请求体里有收货地址与手机号，
+    审计表不该成为第二个 PII 仓库。要还原细节就用 trace_id 翻日志。
+    """
+
+    __tablename__ = "audit_log"
+    __table_args__ = (
+        Index("ix_audit_actor_created", "actor", "created_at"),
+        Index("ix_audit_action_created", "action", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    trace_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # service / operator / user / anonymous
+    actor_kind: Mapped[str] = mapped_column(String(16))
+    # 服务名 / operator / 登录名；匿名时为空串
+    actor: Mapped[str] = mapped_column(String(64))
+    method: Mapped[str] = mapped_column(String(8))
+    path: Mapped[str] = mapped_column(String(255))
+    # 由 method + 归一化路径拼成，如 "POST /shop/orders"（低基数，便于聚合）
+    action: Mapped[str] = mapped_column(String(64))
+    status: Mapped[int] = mapped_column(Integer)
+    duration_ms: Mapped[int] = mapped_column(Integer)
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, index=True)

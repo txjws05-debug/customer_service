@@ -14,6 +14,8 @@ import uuid
 from contextvars import ContextVar
 
 from fastapi import Request
+
+from app import metrics
 from starlette.middleware.base import BaseHTTPMiddleware
 
 TRACE_FIELD = "trace_id"
@@ -53,14 +55,33 @@ class TraceMiddleware(BaseHTTPMiddleware):
         trace_id = incoming or uuid.uuid4().hex[:12]
         token = _var.set(trace_id)
         started = time.perf_counter()
+        # 探针路径不进指标：健康检查每 15 秒一次，会把真实流量的信号淹掉
+        record = request.url.path not in ("/health", "/metrics")
+        if record:
+            metrics.add_gauge("http_requests_in_flight", 1)
         try:
             response = await call_next(request)
         except Exception:
+            if record:
+                metrics.add_gauge("http_requests_in_flight", -1)
+                metrics.inc("http_requests_total", {
+                    "method": request.method,
+                    "path": metrics.normalize_path(request.url.path),
+                    "status": "500"})
             logger.exception("%s %s 异常 耗时%.0fms", request.method,
                              request.url.path,
                              (time.perf_counter() - started) * 1000)
             _var.reset(token)
             raise
+        if record:
+            metrics.add_gauge("http_requests_in_flight", -1)
+            labels = {"method": request.method,
+                      "path": metrics.normalize_path(request.url.path),
+                      "status": str(response.status_code)}
+            metrics.inc("http_requests_total", labels)
+            metrics.observe("http_request_duration_seconds",
+                            time.perf_counter() - started,
+                            {"path": labels["path"]})
         # 健康检查每 15 秒一次，进日志只会把真正的问题埋掉
         if request.url.path != "/health":
             logger.info("%s %s -> %s 耗时%.0fms", request.method,
