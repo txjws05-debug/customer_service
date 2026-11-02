@@ -134,7 +134,9 @@ class TaskState:
             return TaskStarted(task=self.active.to_ref())
     #取消流程
     def cancel(self,task_id:str) -> TaskEvent:
-        if self.active.task_id ==task_id:
+        # active 可能是 None：用户说「算了不买了」时任务已经结束或从未开始。
+        # 原来直接取 .task_id 会 AttributeError，把一句正常的取消说成 500。
+        if self.active is not None and self.active.task_id ==task_id:
             target_task = self.active.to_ref()
             self.active=None
             return TaskCanceled(task=target_task)

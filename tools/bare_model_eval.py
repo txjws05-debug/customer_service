@@ -63,8 +63,12 @@ def snapshot() -> dict:
         code = str(i.get("sku_code") or "")
         if code:
             c[code] = int(i.get("quantity") or 1)
-    o = {str(i.get("order_id") or "") for i in ((orders or {}).get("data") or {}).get("items") or []}
-    return {"cart": c, "orders": o}
+    o = {str(i.get("order_id") or "")
+         for i in ((orders or {}).get("data") or {}).get("orders") or []}
+    t = _shop(f"/shop/users/{SHOP_USER}/after-sales")
+    k = {str(i.get("ticket_no") or i.get("id") or "")
+         for i in ((t or {}).get("data") or {}).get("tickets") or []}
+    return {"cart": c, "orders": o, "tickets": k}
 
 
 def check_state(verify: dict, before: dict) -> tuple[bool, str]:
@@ -84,6 +88,13 @@ def check_state(verify: dict, before: dict) -> tuple[bool, str]:
             return True, ""
         return False, (f"购物车没有真的加入 {sku}"
                        f"（数量：{base_total} → {now_total}）")
+    if kind == "after_sale_created":
+        now = snapshot()["tickets"]
+        base = before.get("tickets") or set()
+        if now - base:
+            return True, ""
+        return False, "售后单没有真的创建（工单数与跑之前一致）"
+
     if kind == "order_created":
         now = snapshot()["orders"]
         base = before.get("orders") or set()

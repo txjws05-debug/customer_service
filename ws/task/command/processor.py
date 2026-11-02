@@ -54,7 +54,12 @@ class CommandProcessor:
             return None
 
         if isinstance(command, CancelTaskCommand):
-            return state.tasks.cancel(command.task_id)
+            # 取消一个不存在的任务是正常对话（用户改主意了），不是系统故障；
+            # 转成 ChatServiceError 让它走「一句话回复」而不是 500。
+            try:
+                return state.tasks.cancel(command.task_id)
+            except ValueError:
+                raise ChatServiceError("当前没有需要取消的任务，你可以继续看别的。")
 
         if isinstance(command, ResumeTaskCommand):
             return state.tasks.resume(command.task_id)

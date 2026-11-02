@@ -223,11 +223,23 @@ class CommerceCtx:
             "GET", f"{self.url}/shop/users/{self.shop_user}/orders", self._headers())
         if status != 200:
             return None
-        items = ((data.get("data") or {}).get("items")) or []
+        # 订单列表在 data.orders，不是 items（读错字段会让校验永远判「没下单」）
+        items = ((data.get("data") or {}).get("orders")) or []
         return {str(i.get("order_id") or "") for i in items}
 
+    def ticket_ids(self) -> set[str] | None:
+        if not self.enabled:
+            return None
+        status, data = _call(
+            "GET", f"{self.url}/shop/users/{self.shop_user}/after-sales", self._headers())
+        if status != 200:
+            return None
+        items = ((data.get("data") or {}).get("tickets")) or []
+        return {str(i.get("ticket_no") or i.get("id") or "") for i in items}
+
     def snapshot(self) -> dict:
-        return {"cart": self.cart_quantities(), "orders": self.order_ids()}
+        return {"cart": self.cart_quantities(), "orders": self.order_ids(),
+                "tickets": self.ticket_ids()}
 
 
 def check_state(verify: dict, before: dict, ctx: CommerceCtx) -> tuple[bool, str]:
@@ -255,6 +267,15 @@ def check_state(verify: dict, before: dict, ctx: CommerceCtx) -> tuple[bool, str
             return True, ""
         return False, (f"购物车没有真的加入 {sku}"
                        f"（数量：{base_total} → {now_total}）")
+
+    if kind == "after_sale_created":
+        now = ctx.ticket_ids()
+        if now is None:
+            return True, ""
+        base = before.get("tickets") or set()
+        if now - base:
+            return True, ""
+        return False, "售后单没有真的创建（工单数与跑之前一致）"
 
     if kind == "order_created":
         now = ctx.order_ids()
