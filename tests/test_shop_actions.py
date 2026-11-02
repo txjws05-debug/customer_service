@@ -275,11 +275,16 @@ def test_place_order_from_cart_applies_coupon(commerce):
         "order_id": "SO20261003001", "status": "待付款", "status_desc": "订单已创建，等待付款。",
         "goods_amount": "2999.00", "discount_amount": "299.90", "freight_amount": "0",
         "pay_amount": "2699.10", "coupon_code": "C_9OFF", "expires_in_minutes": 30})
+    # 购物车模式现在会先查一次购物车（判断有没有勾选），所以要先预置
+    commerce["routes"][("GET", "/shop/users/u1003/cart")] = _ok({
+        "items": [{"item_id": "C1", "sku_code": "SKU10001-01", "quantity": 1}],
+        "total_quantity": 1, "selected_quantity": 1, "selected_amount": "2999.00"})
 
     state = _state(sender_id="u1003", slots={"coupon_code": "C_9OFF"})
     result = _run("action_place_order", state)
 
-    body = commerce["requests"][0]["json"]
+    posts = [r for r in commerce["requests"] if r["method"] == "POST"]
+    body = posts[0]["json"]
     assert body == {"user_id": "u1003", "coupon_code": "C_9OFF"}
     assert "items" not in body                      # 购物车模式不传 items
     assert result.slot_updates["order_number"] == "SO20261003001"
@@ -429,6 +434,10 @@ def test_business_error_is_forwarded_to_user(commerce):
     """中台的业务失败（库存不足等）必须原样告诉用户，而不是「服务不可用」。"""
     commerce["routes"][("POST", "/shop/orders")] = (
         409, {"code": 409, "message": "「美的空气炸锅 5L」库存不足（仅剩 3 件）。", "data": None})
+    # 购物车有勾选才会走到 POST /orders；空购物车会先被「立即购买」分流
+    commerce["routes"][("GET", "/shop/users/u1002/cart")] = _ok({
+        "items": [{"item_id": "C1", "sku_code": "SKU10001-01", "quantity": 1}],
+        "total_quantity": 1, "selected_quantity": 1, "selected_amount": "2999.00"})
 
     with pytest.raises(ChatServiceError) as exc:
         _run("action_place_order", _state())
@@ -465,3 +474,55 @@ def test_404_chinese_detail_still_forwarded(commerce):
     with pytest.raises(ChatServiceError) as exc:
         _run("action_view_cart", _state())
     assert "不存在" in str(exc.value)
+
+def test_place_order_falls_back_to_direct_when_cart_empty(commerce):
+    """购物车空、但用户正看着商品 → 按立即购买办。
+
+    评测 T43/T45 的原话是「帮我下单」，系统回「购物车中没有已勾选的商品」，
+    用户会觉得「我明明说了买这个」。这条路径必须能走通。
+    """
+    commerce["routes"][("GET", "/shop/users/u1002/cart")] = _ok({
+        "items": [], "total_quantity": 0, "selected_quantity": 0,
+        "selected_amount": "0"})
+    commerce["routes"][("POST", "/shop/orders")] = _ok({
+        "order_id": "SO20261102001", "status": "待付款",
+        "goods_amount": "8999.00", "discount_amount": "0", "freight_amount": "0",
+        "pay_amount": "8999.00", "expires_in_minutes": 30})
+
+    state = _state(slots={"sku_code": "SKU10001-01"},
+                   focused=FocusedObject(type="product", id="SKU10001"))
+    result = _run("action_place_order", state)
+
+    body = [r for r in commerce["requests"] if r["method"] == "POST"][0]["json"]
+    assert body["items"] == [{"sku_code": "SKU10001-01", "quantity": 1}]
+    assert result.slot_updates["order_number"] == "SO20261102001"
+
+
+def test_place_order_without_cart_or_focus_asks_user(commerce):
+    """购物车空、也没有聚焦商品 → 说清楚要选哪件，而不是把中台的话原样吐出来。"""
+    commerce["routes"][("GET", "/shop/users/u1002/cart")] = _ok({
+        "items": [], "total_quantity": 0, "selected_quantity": 0,
+        "selected_amount": "0"})
+
+    with pytest.raises(ChatServiceError) as exc:
+        _run("action_place_order", _state())
+    assert "购物车" in str(exc.value)
+    # 没有商品可买，就不该去创建订单
+    assert not [r for r in commerce["requests"] if r["method"] == "POST"]
+
+
+def test_place_order_keeps_cart_mode_when_items_selected(commerce):
+    """购物车里有勾选商品时，不能被「回落立即购买」抢走——那会忽略优惠券和整单。"""
+    commerce["routes"][("GET", "/shop/users/u1002/cart")] = _ok({
+        "items": [{"item_id": "C1", "sku_code": "SKU10001-01", "quantity": 2}],
+        "total_quantity": 2, "selected_quantity": 2, "selected_amount": "17998.00"})
+    commerce["routes"][("POST", "/shop/orders")] = _ok({
+        "order_id": "SO20261102002", "status": "待付款",
+        "goods_amount": "17998.00", "discount_amount": "0", "freight_amount": "0",
+        "pay_amount": "17998.00", "expires_in_minutes": 30})
+
+    state = _state(focused=FocusedObject(type="product", id="SKU10001"))
+    _run("action_place_order", state)
+
+    body = [r for r in commerce["requests"] if r["method"] == "POST"][0]["json"]
+    assert "items" not in body

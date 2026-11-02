@@ -23,6 +23,7 @@ from ws.utils.shop_client import (
     money,
     parse_quantity,
     resolve_commerce_user,
+    shop_get,
     shop_post,
 )
 from ws.task.custom.shop_cart import _resolve_sku
@@ -40,6 +41,21 @@ class PlaceOrder(Action):
         coupon_code = (slots.get("coupon_code") or "").strip()
         if coupon_code:
             body["coupon_code"] = coupon_code
+
+        if mode == "cart":
+            # 「帮我下单」时购物车常常是空的：用户心里想的是「买我正在看的这件」。
+            # 原来把中台的「购物车中没有已勾选的商品」原样回给用户，用户会觉得
+            # 「我明明说了买这个」。有聚焦商品就按立即购买办，没有才让用户去勾选。
+            cart = await shop_get(f"/users/{user_id}/cart")
+            selected = int((cart or {}).get("selected_quantity") or 0)
+            if selected <= 0:
+                focused = state.share.focuse_object
+                if focused is not None and focused.kind == "product":
+                    mode = "direct"
+                else:
+                    raise ChatServiceError(
+                        "购物车还没有勾选商品。可以先在购物车里勾选要结算的商品，"
+                        "或者告诉我要买哪一件。")
 
         if mode == "direct":
             sku_code, spec_text = await _resolve_sku(slots, state.share.focuse_object)

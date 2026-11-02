@@ -59,7 +59,8 @@ class CommandProcessor:
             try:
                 return state.tasks.cancel(command.task_id)
             except ValueError:
-                raise ChatServiceError("当前没有需要取消的任务，你可以继续看别的。")
+                raise ChatServiceError(
+                    "好的，这次就不办了。需要继续，或者换一件事，随时告诉我。")
 
         if isinstance(command, ResumeTaskCommand):
             return state.tasks.resume(command.task_id)

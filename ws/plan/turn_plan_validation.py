@@ -27,10 +27,20 @@ class TurnPlanValidation:
                 reason=ClarifyReason.MISSING_TRACK
             )
         if len(active_tracks)>1:
-            return TurnPlanValidationResult(
-                valid=False,
-                reason=ClarifyReason.MULTIPLE_TRACKS
-            )
+            # 一句话只能办一件事，但不该因此把用户挡在门外。
+            # 「还没发货，能改收货地址吗」里「还没发货」是前提，不是第二个请求；
+            # 判成多轨道再反问「您想先处理哪个」，用户只会觉得系统没听懂。
+            # 这里按「办理 > 咨询 > 闲聊」取优先级最高的一个，其余丢弃。
+            # 代价：一句话里真提了两件事时只回应其中一件，用户会再说一遍——
+            # 这比先反问一句更接近人与人对话的实际节奏。
+            preferred = None
+            if turn_plan.task is not None and turn_plan.task.commands:
+                preferred = "task"
+            elif turn_plan.knowledge is not None:
+                preferred = "knowledge"
+            elif turn_plan.chitchat is not None:
+                preferred = "chitchat"
+            active_tracks = [preferred or active_tracks[0]]
         #只有一个轨道
         active_tracks=active_tracks[0]
         if active_tracks=="task":
@@ -84,12 +94,13 @@ class TurnPlanValidation:
                 #获取当前活跃任务id
                 if state.tasks.active:
                     all_task_ids.append(state.tasks.active.task_id)
-                #判断
+                # 取消一个「对不上」的任务不判非法指令。
+                # 「算了不买了」时任务往往已经结束（订单都建好了），模型给回的
+                # task_id 自然匹配不上任何 active/paused。这是正常对话行为，
+                # 交给命令处理器回一句「好的，这次就不办了」，
+                # 比反问「抱歉，这个操作我暂时无法完成」有用得多。
                 if command.task_id not in all_task_ids:
-                    return  TurnPlanValidationResult(
-                        valid=False,
-                        reason=ClarifyReason.INVALID_TASK_COMMAND
-                    )
+                    continue
 
         return TurnPlanValidationResult(valid=True)
 
