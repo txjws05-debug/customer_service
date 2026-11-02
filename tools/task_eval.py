@@ -188,11 +188,94 @@ def classify_failure(status: int, reply: str, detail: str = "") -> str:
     return "assertion"
 
 
-def run_case(base: str, token: str, case: dict) -> dict:
+class CommerceCtx:
+    """中台上下文：状态校验要用它去查副作用是否真的发生。"""
+
+    def __init__(self, url: str, token: str, shop_user: str):
+        self.url = url
+        self.token = token
+        self.shop_user = shop_user
+        self.enabled = bool(url and token)
+
+    def _headers(self) -> dict:
+        return {"X-Service-Token": self.token, "Content-Type": "application/json"}
+
+    def cart_quantities(self) -> dict[str, int] | None:
+        """返回 {sku_code: 数量}。比集合更准：同一商品再买只是数量 +1。"""
+        if not self.enabled:
+            return None
+        status, data = _call(
+            "GET", f"{self.url}/shop/users/{self.shop_user}/cart", self._headers())
+        if status != 200:
+            return None
+        items = ((data.get("data") or {}).get("items")) or []
+        out: dict[str, int] = {}
+        for i in items:
+            code = str(i.get("sku_code") or "")
+            if code:
+                out[code] = int(i.get("quantity") or 1)
+        return out
+
+    def order_ids(self) -> set[str] | None:
+        if not self.enabled:
+            return None
+        status, data = _call(
+            "GET", f"{self.url}/shop/users/{self.shop_user}/orders", self._headers())
+        if status != 200:
+            return None
+        items = ((data.get("data") or {}).get("items")) or []
+        return {str(i.get("order_id") or "") for i in items}
+
+    def snapshot(self) -> dict:
+        return {"cart": self.cart_quantities(), "orders": self.order_ids()}
+
+
+def check_state(verify: dict, before: dict, ctx: CommerceCtx) -> tuple[bool, str]:
+    """按用例声明的 verify 校验副作用。返回 (是否达成, 失败原因)。"""
+    if not verify:
+        return True, ""
+    if not ctx.enabled:
+        # 没配中台就无法校验，明确跳过而不是假装通过
+        return True, ""
+
+    kind = verify.get("type")
+
+    if kind == "cart_added":
+        sku = str(verify.get("sku") or "")
+        now = ctx.cart_quantities()
+        if now is None:
+            return True, ""
+
+        def total(cart: dict) -> int:
+            return sum(q for k, q in (cart or {}).items() if k.startswith(sku))
+
+        base_total = total(before.get("cart") or {})
+        now_total = total(now)
+        if sku and now_total > base_total:
+            return True, ""
+        return False, (f"购物车没有真的加入 {sku}"
+                       f"（数量：{base_total} → {now_total}）")
+
+    if kind == "order_created":
+        now = ctx.order_ids()
+        if now is None:
+            return True, ""
+        base = before.get("orders") or set()
+        if now - base:
+            return True, ""
+        return False, "订单没有真的创建（订单数与跑之前一致）"
+
+    return True, ""
+
+
+def run_case(base: str, token: str, case: dict, ctx: CommerceCtx | None = None) -> dict:
     started = time.time()
     transcript = []
     failures = []
     error_kinds: set[str] = set()
+    # 只有声明了 verify 的用例才需要拍快照（多一次中台调用）
+    need_state = bool(case.get("verify")) and ctx is not None and ctx.enabled
+    before = ctx.snapshot() if need_state else {}
     for index, turn in enumerate(case["turns"], 1):
         payload = {"text": turn["text"]}
         if turn.get("object"):
@@ -209,6 +292,12 @@ def run_case(base: str, token: str, case: dict) -> dict:
         ok, reason = check(text, turn.get("expect") or {})
         if not ok:
             failures.append(f"第 {index} 轮：{reason}")
+    # 断言都过了之后再验副作用：文本说做了 ≠ 真的做了
+    if need_state and not failures:
+        ok, reason = check_state(case.get("verify") or {}, before, ctx)
+        if not ok:
+            failures.append(f"状态校验：{reason}")
+
     return {
         "id": case["id"],
         "name": case.get("name", case["id"]),
@@ -244,6 +333,7 @@ def main() -> int:
     if args.limit:
         cases = cases[: args.limit]
 
+    commerce_ctx = CommerceCtx(args.commerce_url, args.commerce_token, args.shop_user)
     username = f"eval_{uuid.uuid4().hex[:8]}"
     token = register(args.base_url, username, "eval-pass-123456")
     removed = reset_cart(args.commerce_url, args.commerce_token, args.shop_user)
@@ -259,7 +349,7 @@ def main() -> int:
     results = []
     try:
         for case in cases:
-            result = run_case(args.base_url, token, case)
+            result = run_case(args.base_url, token, case, commerce_ctx)
             results.append(result)
             if not args.quiet:
                 flag = "PASS" if result["passed"] else "FAIL"

@@ -84,6 +84,7 @@ cases:
 
   - id: T11
     name: 把商品加入购物车
+    verify: { type: cart_added, sku: SKU10001 }
     turns:
       - text: ""
         object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
@@ -209,6 +210,7 @@ cases:
 
   - id: T25
     name: 加购后追问物流
+    verify: { type: cart_added, sku: SKU10001 }
     turns:
       - text: ""
         object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
@@ -269,6 +271,7 @@ cases:
 
   - id: T33
     name: 超量下单
+    verify: { type: order_created }
     turns:
       - text: ""
         object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
