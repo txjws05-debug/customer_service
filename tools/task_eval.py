@@ -336,6 +336,8 @@ def main() -> int:
     parser.add_argument("--base-url", default="http://127.0.0.1:18082")
     parser.add_argument("--cases", default="tools/task_cases.yaml")
     parser.add_argument("--limit", type=int, default=0, help="只跑前 N 条（0=全部）")
+    parser.add_argument("--only", default="",
+                        help="只跑指定 ID，逗号分隔（如 T63,T67）。改完一处用它验证，别整跑")
     parser.add_argument("--threshold", type=float, default=0.9,
                         help="通过率门槛，低于它进程退出码为 1")
     parser.add_argument("--json", default="task_eval_report.json")
@@ -351,6 +353,16 @@ def main() -> int:
     args = parser.parse_args()
 
     cases = yaml.safe_load(Path(args.cases).read_text(encoding="utf-8"))["cases"]
+    if args.only:
+        wanted = [x.strip() for x in args.only.split(",") if x.strip()]
+        index = {c["id"]: c for c in cases}
+        missing = [w for w in wanted if w not in index]
+        if missing:
+            print(f"没有这些用例：{','.join(missing)}")
+            return 2
+        # 按 yaml 里的原顺序跑，而不是按命令行顺序：报告顺序和全量跑时一致，便于对比
+        cases = [c for c in cases if c["id"] in set(wanted)]
+        print(f"只跑指定用例 {len(cases)} 条：{','.join(c['id'] for c in cases)}")
     if args.limit:
         cases = cases[: args.limit]
 
