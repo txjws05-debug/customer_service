@@ -11,7 +11,7 @@ from ws.plan.models import PlanUnavailable, TurnPlan
 from ws.prompts.history_builder import HistoryBuilder
 from ws.prompts.loader import load_prompt
 from ws.utils.errors import ChatServiceError
-from ws.utils.llm_client import llm
+from ws.utils.llm_client import llm_deterministic as llm
 from ws.utils.llm_errors import as_chat_service_error
 
 logger = logging.getLogger("ws.plan.planner")

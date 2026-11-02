@@ -27,8 +27,11 @@ _CLARIFY_MESSAGES: dict[ClarifyReason, str] = {
         "请先在页面选择要咨询的商品或订单。",
     ClarifyReason.OBJECT_REQUIRES_INTENT:
         "请问您想查询这个对象的什么信息呢？",
+    # 这条主要出现在「用户要办的事系统没有对应流程」时（例如改收货地址）。
+    # 原来那句「能换个说法吗」把责任推给用户——他说得很清楚，是我们办不了。
+    # 改成承认办不了并给出路，比让他反复改写有用。
     ClarifyReason.INVALID_TASK_COMMAND:
-        "抱歉，这个操作我暂时无法完成，能换个说法吗？",
+        "这个需求我这边暂时没法直接办理。可以帮你转接人工客服，由人工跟进处理。",
     ClarifyReason.UNKNOWN_KNOWLEDGE_INTENT:
         "抱歉，我没找到相关信息，能换个问法吗？",
 }

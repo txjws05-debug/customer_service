@@ -40,3 +40,9 @@ llm = llm.with_retry(
 # 把每次调用的 token 用量记进全站预算。挂在 llm 单例上，
 # 所有 `prompt | llm | parser` 链自动带着走，不用改 13 个调用点。
 llm = llm.with_config({"callbacks": [UsageTracker()]})
+
+# 结构化抽取（意图识别、槽位抽取）单独用低温度。
+# temperature=1.1 是给「回复」用的，让措辞自然；用在意图分类上，同一句话
+# 两次运行会得到不同结果 —— 评测里「多少钱」被识别成「立即购买」，
+# 系统真的建了单、下一步还付了款。抽取任务要的是可复现，不是多样性。
+llm_deterministic = llm.bind(temperature=0.1)

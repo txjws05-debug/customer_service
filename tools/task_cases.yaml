@@ -357,8 +357,11 @@ cases:
         expect: { any_of: ["发货", "小时", "天", "物流"] }
 
   - id: T43
-    name: 下单后退货
-    verify: { type: after_sale_created }
+    # 这条验的是「提出退货后系统怎么接」，不是「售后单有没有建成」。
+    # 用户只说「我要退货」，没给订单号、没给售后类型和原因，
+    # 合理反应是进入售后流程并追问，而不是凭空把单建了。
+    # 副作用校验留给 T12 那种带完整信息的用例，否则等于逼系统编数据。
+    name: 下单后提出退货
     turns:
       - text: ""
         object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }
