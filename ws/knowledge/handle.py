@@ -1,6 +1,13 @@
+import logging
+
 from ws.domain.message import UserMessage, BotMessage
 from ws.domain.state import DialogueState
 from ws.knowledge.intents import KnowledgeIntent, KNOWLEDGE_INTENTS
+
+# 未知意图时退回的通用知识库。宁可检索得宽一点，也不要 500。
+DEFAULT_PROVIDER_ID = "faq.default"
+
+logger = logging.getLogger(__name__)
 from ws.knowledge.provider import KnowledgeProvider, KnowledgeChunk
 from ws.knowledge.registry import KnowledgeProviderRegistry
 from ws.knowledge.responder import KnowledgeResponder
@@ -71,8 +78,16 @@ class KnowledgeHandler:
         final_provider_ids: list[str] = []
         #遍历得到每个意图识别结果值
         for intent in knowledge_intents:
-            # 拿着图识别结果值，到字典找到位置
-            final_provider_ids.extend(KNOWLEDGE_INTENTS[intent].provider_ids)
+            # 拿意图识别结果到字典找位置。
+            # 用 get 而不是下标：模型偶尔会编出枚举里没有的名字
+            #（例如「能退差价吗」被识别成 price_difference_refund_policy），
+            # 下标写法会把一次正常的业务提问变成 500 —— 靠运气不触发的崩溃最难查。
+            entry = KNOWLEDGE_INTENTS.get(intent)
+            if entry is None:
+                logger.warning("未知知识意图 %r，按通用知识检索处理", intent)
+                final_provider_ids.append(DEFAULT_PROVIDER_ID)
+                continue
+            final_provider_ids.extend(entry.provider_ids)
         # final_provider_ids去重 ["faq.default", "faq.default" , "api.product"]
         # 第一种 set集合， 缺陷：无法保证数据顺序
         return list(set(final_provider_ids))
