@@ -368,7 +368,8 @@ def main() -> int:
 
     commerce_ctx = CommerceCtx(args.commerce_url, args.commerce_token, args.shop_user)
     username = f"eval_{uuid.uuid4().hex[:8]}"
-    token = register(args.base_url, username, "eval-pass-123456")
+    # 只用来打日志和事后清理；真正跑用例时每条会各自注册新账号（见下面循环）
+    register(args.base_url, username, "eval-pass-123456")
     removed = reset_cart(args.commerce_url, args.commerce_token, args.shop_user)
     if removed:
         print(f"已清空评测购物车 {removed} 条（避免上一轮残留影响本轮）")
@@ -382,7 +383,13 @@ def main() -> int:
     results = []
     try:
         for case in cases:
-            result = run_case(args.base_url, token, case, commerce_ctx)
+            # 每条用例一个新账号。对话状态是按 sender_id 存的，共用账号时
+            # 上一条没走完的任务会留到下一题：T43 停在售后流程里没退出，
+            # T45 第一句「多少钱」就被当成售后槽位回答了 —— 两题一起判错，
+            # 而且错得莫名其妙。注册不走模型，成本可以忽略。
+            case_token = register(
+                args.base_url, f"eval_{uuid.uuid4().hex[:8]}", "eval-pass-123456")
+            result = run_case(args.base_url, case_token, case, commerce_ctx)
             results.append(result)
             if not args.quiet:
                 flag = "PASS" if result["passed"] else "FAIL"
