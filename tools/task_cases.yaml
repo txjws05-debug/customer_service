@@ -271,7 +271,9 @@ cases:
 
   - id: T33
     name: 超量下单
-    verify: { type: order_created }
+    # 2026-11-05 修正：原为 order_created，等于要求系统把 999 台的单建出来；
+    # 正确行为是拒绝，因此改为「不应建单」。此前 T33 的通过/失败均按旧校验判定。
+    verify: { type: no_order_created }
     turns:
       - text: ""
         object: { type: product, id: SKU10001, title: "iPhone 15 Pro 256G 远峰蓝" }

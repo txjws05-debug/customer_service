@@ -578,3 +578,45 @@ def test_default_sku_compares_prices_as_numbers(commerce):
         ]})
     picked = asyncio.run(fetch_default_sku("SKU10001"))
     assert picked["sku_code"] == "SKU10001-01"
+
+
+def _run_with_message(action: str, state, text: str, **kwargs):
+    token = http_module.bind_message_text(text)
+    try:
+        return _run(action, state, **kwargs)
+    finally:
+        http_module.reset_message_text(token)
+
+
+def test_place_order_refuses_oversized_quantity_even_if_slot_is_empty(commerce):
+    """T33：大模型没把「999 台」抽进槽位时，曾按默认 1 台悄悄建单。"""
+    commerce["routes"][("POST", "/shop/orders")] = _ok({"order_id": "SO-SHOULD-NOT-EXIST"})
+    state = _state(slots={"sku_code": "SKU10001-01"})
+    with pytest.raises(ChatServiceError) as exc:
+        _run_with_message("action_place_order", state, "帮我下单 999 台", mode="direct")
+    assert "99" in str(exc.value) and "999" in str(exc.value)
+    assert not [r for r in commerce["requests"] if r["method"] == "POST"]
+
+
+def test_place_order_reads_quantity_from_message_when_slot_is_empty(commerce):
+    commerce["routes"][("POST", "/shop/orders")] = _ok({
+        "order_id": "SO20261105009", "status": "待付款", "status_desc": "待付款",
+        "goods_amount": "26997.00", "discount_amount": "0", "freight_amount": "0",
+        "pay_amount": "26997.00", "expires_in_minutes": 30})
+    state = _state(slots={"sku_code": "SKU10001-01"})
+    _run_with_message("action_place_order", state, "给我来 3 台", mode="direct")
+    post = next(r for r in commerce["requests"] if r["method"] == "POST")
+    assert post["json"]["items"] == [{"sku_code": "SKU10001-01", "quantity": 3}]
+
+
+def test_message_numbers_without_a_unit_are_not_quantities(commerce):
+    """订单号、价格里的数字不能被当成数量。"""
+    commerce["routes"][("POST", "/shop/orders")] = _ok({
+        "order_id": "SO20261105010", "status": "待付款", "status_desc": "待付款",
+        "goods_amount": "8999.00", "discount_amount": "0", "freight_amount": "0",
+        "pay_amount": "8999.00", "expires_in_minutes": 30})
+    state = _state(slots={"sku_code": "SKU10001-01"})
+    _run_with_message("action_place_order", state, "8999 的那个直接买了", mode="direct")
+    post = next(r for r in commerce["requests"] if r["method"] == "POST")
+    assert post["json"]["items"][0]["quantity"] == 1
+

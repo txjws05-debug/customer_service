@@ -11,7 +11,7 @@
 import re
 from typing import Any
 
-from ws.utils.http import current_message_id
+from ws.utils.http import current_message_id, current_message_text
 from ws.domain.state import DialogueState
 from ws.task.action.base import Action, ActionResult
 from ws.utils.errors import ChatServiceError
@@ -21,6 +21,7 @@ from ws.utils.errors import ChatServiceError
 MAX_ORDER_QUANTITY = 99
 
 from ws.utils.shop_client import (
+    quantity_from_text,
     order_ref,
     money,
     parse_quantity,
@@ -64,12 +65,16 @@ class PlaceOrder(Action):
             # 用户说「999 台」时 parse_quantity 会夹到 99 并照常下单，
             # 用户以为买的是 999 台 —— 静默降级比直接拒绝更糟，必须明说。
             raw = str(slots.get("quantity") or "")
+            if not raw.strip():
+                # 槽位靠大模型抽取，「帮我下单 999 台」曾漏抽数量，按默认 1 台悄悄建了单（T33）。
+                # 槽位为空时回到用户原话里找「数字 + 量词」兜底，超量检查才不会被绕过。
+                raw = quantity_from_text(current_message_text())
             asked = re.search(r"\d+", raw)
             if asked and int(asked.group()) > MAX_ORDER_QUANTITY:
                 raise ChatServiceError(
                     f"单笔最多 {MAX_ORDER_QUANTITY} 件，无法一次下单 {asked.group()} 件。"
                     f"如果确实需要这么多，建议分多笔下单，或联系人工客服走批量通道。")
-            quantity = parse_quantity(slots.get("quantity"))
+            quantity = parse_quantity(raw)
             body["items"] = [{"sku_code": sku_code, "quantity": quantity}]
             slots["sku_code"] = sku_code
             slots["sku_spec"] = spec_text

@@ -44,6 +44,22 @@ def current_message_id() -> str | None:
     return _message_id.get()
 
 
+# 当前用户原话：槽位抽取漏掉关键信息（如数量）时，动作可以据此兜底
+_message_text: ContextVar[str | None] = ContextVar("dialogue_message_text", default=None)
+
+
+def bind_message_text(text: str | None) -> Token:
+    return _message_text.set(text or None)
+
+
+def reset_message_text(token: Token) -> None:
+    _message_text.reset(token)
+
+
+def current_message_text() -> str | None:
+    return _message_text.get()
+
+
 # 路径里出现 `..` / `.` 段或编码后的斜杠、点：httpx 会把 `../` 规范化掉，
 # 拼进 URL 的订单号就能把请求带到别的接口（例如 /shop/admin/*）。逐处校验之外再兜一层。
 _UNSAFE_PATH = re.compile(r"/\.\.?(?:/|$)|%2[eEfF]|%5[cC]|\\")

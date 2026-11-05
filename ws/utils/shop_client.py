@@ -184,6 +184,16 @@ _CN_DIGITS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
               "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
 
 
+# 只认「数字 + 量词」：原话里的订单号、价格（「8999 的那个」）不能被当成数量
+_QUANTITY_IN_TEXT = re.compile(r"(\d+)\s*(?:台|件|个|部|只|份|套|箱|盒|支)")
+
+
+def quantity_from_text(text: str | None) -> str:
+    """从用户原话里找「999 台」这类数量表达，找不到返回空串。"""
+    match = _QUANTITY_IN_TEXT.search(text or "")
+    return match.group(0) if match else ""
+
+
 def parse_quantity(value: Any, default: int = 1) -> int:
     """把「两件」「2 个」「买 3 份」都解析成数量，并夹在 1~99。"""
     if value is None or value == "":

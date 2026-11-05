@@ -296,6 +296,16 @@ def check_state(verify: dict, before: dict, ctx: CommerceCtx) -> tuple[bool, str
             return True, ""
         return False, "售后单没有真的创建（工单数与跑之前一致）"
 
+    if kind == "no_order_created":
+        # 应当拒绝的下单（超量、越权）：订单数必须与跑之前一致
+        now = ctx.order_ids()
+        if now is None:
+            return True, ""
+        extra = now - (before.get("orders") or set())
+        if not extra:
+            return True, ""
+        return False, f"不该建单却建了：{sorted(extra)}"
+
     if kind == "order_created":
         now = ctx.order_ids()
         if now is None:
