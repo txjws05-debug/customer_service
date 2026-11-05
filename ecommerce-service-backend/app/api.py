@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
+from app.ownership import ensure_order_scope
 from app.models import (
     LogisticsRecord,
     Order,
@@ -17,6 +18,7 @@ from app.models import (
     ShippingUrgeRequest,
     User,
 )
+from app.shop_service import ShopError
 from app.schemas import (
     ApiResponse,
     LogisticsData,
@@ -110,6 +112,11 @@ def _get_order_or_404(db: Session, order_id: str) -> Order:
     )
     if not order:
         raise HTTPException(status_code=404, detail=f"订单 {order_id} 不存在。")
+    # 与 /shop 链路保持一致：普通用户只能碰自己的订单；服务/运营令牌跨用户放行。
+    try:
+        ensure_order_scope(order)
+    except ShopError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     return order
 
 
