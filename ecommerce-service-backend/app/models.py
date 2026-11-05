@@ -29,6 +29,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    CheckConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -122,6 +123,8 @@ class ProductSku(Base):
     """商品规格。小型版：spec_json 直接存规格字典，不做规格项模板表。"""
 
     __tablename__ = "product_skus"
+    # 兜底：上层校验一旦漏了（比如同一 SKU 多行），库存也写不成负数
+    __table_args__ = (CheckConstraint("stock >= 0", name="ck_product_skus_stock_nonneg"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)

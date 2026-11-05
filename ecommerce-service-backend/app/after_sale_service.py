@@ -31,6 +31,7 @@ from app.shop_schemas import (
     ReviewData,
     ReviewListData,
 )
+from app.ownership import ensure_order_scope
 from app.shop_service import ShopError, get_user
 
 
@@ -57,6 +58,9 @@ def _get_ticket(db: Session, ticket_no: str) -> models.AfterSaleTicket:
     ticket = _ticket_query(db).filter(models.AfterSaleTicket.ticket_no == ticket_no).first()
     if not ticket:
         raise ShopError(f"售后单 {ticket_no} 不存在。", 404)
+    # 别人的售后单按「不存在」处理（与订单一致，404 不泄露单号是否存在）；
+    # 运营端与裸服务令牌照常放行
+    ensure_order_scope(ticket.order)
     return ticket
 
 
@@ -84,12 +88,21 @@ def create_after_sale(
     if open_ticket:
         raise ShopError(f"该订单已有进行中的售后单 {open_ticket.ticket_no}。", 409)
 
+    # 可退金额 = 实付 - 已退。只看实付的话，一张售后完成后还能再申请一次全额
+    from app.refunds import paid_payment, refunded_total
+
     payable = order.payable
-    refund_amount = payload.refund_amount if payload.refund_amount is not None else payable
+    payment = paid_payment(db, order)
+    refundable = payable - (refunded_total(db, payment) if payment else 0)
+    if refundable <= 0:
+        raise ShopError("该订单已全额退款，无需再申请。", 409)
+    refund_amount = payload.refund_amount if payload.refund_amount is not None else refundable
     if refund_amount <= 0:
         raise ShopError("退款金额必须大于 0。", 400)
-    if refund_amount > payable:
-        raise ShopError(f"退款金额不能超过实付金额 {payable} 元。", 400)
+    if refund_amount > refundable:
+        raise ShopError(
+            f"退款金额不能超过实付金额 {payable} 元"
+            f"（已退 {rules.money(payable - refundable)} 元，可退 {rules.money(refundable)} 元）。", 400)
 
     now = rules.now()
     ticket = models.AfterSaleTicket(

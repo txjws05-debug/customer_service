@@ -132,3 +132,15 @@ def enforced_service_token(monkeypatch):
                                   auth_enforce="on")
     monkeypatch.setattr(security, "settings", patched)
     return "svc-test"
+
+
+@pytest.fixture(autouse=True)
+def _reset_auth_context():
+    """单元测试会直接 set 当前身份（security._current）而不复位；同一线程里后续
+    直调服务层的用例会继承这个残留身份，被对象级授权误拦。每条用例后复位为匿名。"""
+    from app import security
+
+    token = security._current.set(security.ANONYMOUS)
+    yield
+    security._current.reset(token)
+

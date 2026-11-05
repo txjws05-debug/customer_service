@@ -26,7 +26,8 @@ from app import shop_rules as rules
 from app.database import SessionLocal
 
 SKU = "SKU10006-01"
-SCOPE = "order"
+# 幂等键按用户隔离（scope = order:<商城号>），这些用例都以 u1001 下单
+SCOPE = "order:u1001"
 
 
 def _reset_stock(db, stock: int) -> None:
@@ -188,7 +189,7 @@ def test_in_progress_waits_then_replays(db):
         with SessionLocal() as session:
             session.execute(text(
                 "UPDATE idempotency_key SET status='succeeded', result_ref='SO-WAIT-1' "
-                "WHERE scope='order' AND key=:k"), {"k": key})
+                "WHERE scope=:s AND key=:k"), {"s": SCOPE, "k": key})
             session.commit()
 
     threading.Thread(target=flip_to_success, daemon=True).start()

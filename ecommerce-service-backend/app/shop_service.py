@@ -461,16 +461,25 @@ def _expire_coupons(db: Session, user: models.User) -> None:
     ).update({"status": "expired"}, synchronize_session=False)
 
 
-def find_coupon(db: Session, user: models.User, code: str) -> tuple[models.UserCoupon | None, str]:
-    """返回 (用户券, 说明)。说明用于预览接口向用户解释为什么没优惠。"""
+def find_coupon(db: Session, user: models.User, code: str, *,
+                lock: bool = False) -> tuple[models.UserCoupon | None, str]:
+    """返回 (用户券, 说明)。说明用于预览接口向用户解释为什么没优惠。
+
+    lock=True（下单路径）：锁住这张用户券。不锁的话同一张券并发下两单，
+    两边都读到「未使用」，两单都拿到优惠。
+    """
     _expire_coupons(db, user)
-    user_coupon = db.scalar(
+    query = (
         select(models.UserCoupon)
         .options(joinedload(models.UserCoupon.coupon))
         .filter(models.UserCoupon.user_id == user.id)
         .filter(models.UserCoupon.coupon.has(code=code))
         .order_by(models.UserCoupon.id.desc())
     )
+    if lock:
+        query = (query.with_for_update(of=models.UserCoupon)
+                 .execution_options(populate_existing=True))
+    user_coupon = db.scalar(query)
     if not user_coupon:
         return None, f"未找到优惠券 {code}（可能未领取）。"
     if user_coupon.status == "used":
@@ -516,12 +525,13 @@ class _Amounts:
 
 def _compute_amounts(
     db: Session, user: models.User, goods_amount: Decimal, coupon_code: str | None,
+    lock_coupon: bool = False,
 ) -> tuple[_Amounts, models.UserCoupon | None, str]:
     discount = Decimal("0")
     user_coupon = None
     message = ""
     if coupon_code:
-        user_coupon, message = find_coupon(db, user, coupon_code)
+        user_coupon, message = find_coupon(db, user, coupon_code, lock=lock_coupon)
         if user_coupon:
             coupon = user_coupon.coupon
             discount = rules.compute_coupon_discount(
@@ -637,12 +647,16 @@ def create_order(
         # 不带键 = 老调用方，行为与改造前完全一致
         return _do_create_order(db, user, address_id, coupon_code, items, None)
 
-    acquired = idempotency.try_acquire(db, idempotency.SCOPE_ORDER, request_id)
+    # 幂等键按用户隔离：全局共享时，B 带上 A 用过的键就会被回放出 A 的订单
+    scope = f"{idempotency.SCOPE_ORDER}:{user.user_id}"
+    acquired = idempotency.try_acquire(db, scope, request_id)
     if acquired.state == "in_progress":
         raise ShopError(
             "同一笔下单正在处理中，请勿重复提交；稍等几秒刷新订单列表即可。", 409)
     if acquired.state == "succeeded":
         existing = _order_by_request_id(db, request_id)
+        if existing is not None and existing.user_id != user.id:
+            raise ShopError("幂等键已被占用，请重新提交。", 409)
         if existing is None:
             # 记录说成功了但订单查不到：宁可让用户稍后查列表，也不重新建单
             raise ShopError("这笔请求已处理，请稍后在订单列表查看结果。", 409)
@@ -653,12 +667,12 @@ def create_order(
     except ShopError as exc:
         db.rollback()
         # 失败要立刻释放这个键，否则用户改完地址/换个规格再提交会被自己挡住
-        idempotency.mark_failed(idempotency.SCOPE_ORDER, request_id, str(exc))
+        idempotency.mark_failed(scope, request_id, str(exc))
         raise
     except Exception:
         db.rollback()
         idempotency.mark_failed(
-            idempotency.SCOPE_ORDER, request_id, "unexpected_error")
+            scope, request_id, "unexpected_error")
         raise
 
 
@@ -675,10 +689,16 @@ def _do_create_order(
     auto_close_expired_orders(db, user)
 
     if items:
-        lines: list[tuple[models.ProductSku, int]] = []
+        # 同一 SKU 出现多行必须先合并：下面是逐行比库存、累加扣减，
+        # 不合并的话 [{A,2},{A,2}] 在库存 3 时两行都能过校验，库存被扣成 -1
+        merged: dict[int, list] = {}
         for entry in items:
             sku = get_sku_by_code(db, entry.sku_code)
-            lines.append((sku, entry.quantity))
+            if sku.id in merged:
+                merged[sku.id][1] += entry.quantity
+            else:
+                merged[sku.id] = [sku, entry.quantity]
+        lines: list[tuple[models.ProductSku, int]] = [(s, q) for s, q in merged.values()]
         cart_item_ids: list[int] = []
     else:
         cart_items = _selected_cart_lines(db, user)
@@ -712,7 +732,8 @@ def _do_create_order(
         goods_amount += current.price * quantity
 
     address = _resolve_address(db, user, address_id)
-    amounts, user_coupon, message = _compute_amounts(db, user, goods_amount, coupon_code)
+    amounts, user_coupon, message = _compute_amounts(
+        db, user, goods_amount, coupon_code, lock_coupon=True)
     if coupon_code:
         # 预览接口只解释「为什么没优惠」，但下单必须明确失败——
         # 否则用户以为自己用了券，实际按原价付了款
@@ -739,9 +760,12 @@ def _do_create_order(
         # 否则这个键会停在 processing，用户重试只会一直拿到 409。
         db.rollback()
         existing = _order_by_request_id(db, request_id) if request_id else None
+        if existing is not None and existing.user_id != user.id:
+            # orders.request_id 全局唯一：别人用过这个键。不能回放别人的单
+            raise ShopError("幂等键已被占用，请重新提交。", 409)
         if existing is not None:
             idempotency.mark_succeeded(
-                db, idempotency.SCOPE_ORDER, request_id, existing.order_id)
+                db, f"{idempotency.SCOPE_ORDER}:{user.user_id}", request_id, existing.order_id)
             db.commit()
             return _created_data(existing)
         raise
@@ -765,7 +789,7 @@ def _do_create_order(
     if request_id:
         # 与订单同一次提交：分开提交会留出「幂等记录说成功、订单没落库」的窗口
         idempotency.mark_succeeded(
-            db, idempotency.SCOPE_ORDER, request_id, order.order_id)
+            db, f"{idempotency.SCOPE_ORDER}:{user.user_id}", request_id, order.order_id)
     db.commit()
     # 下单改了库存 → 商品列表里的「库存状态/销量」要作废（提交后尽力作废）
     cache.bump("dynamic")
@@ -774,7 +798,17 @@ def _do_create_order(
 
 
 # ============================================================ 支付 / 取消 / 收货
-def _get_order(db: Session, order_id: str) -> models.Order:
+def _get_order(db: Session, order_id: str, *, lock: bool = False) -> models.Order:
+    """lock=True 用于支付/取消/收货这类状态迁移：先 FOR UPDATE 锁订单行再读。
+
+    不锁的话两次取消同时进来，都会读到「待付款/待发货」，库存与优惠券各归还两次；
+    支付和取消交错，还会出现「已取消但支付成功」。锁住之后后到者读到的是新状态，
+    按状态机直接 409。
+    """
+    if lock:
+        db.execute(select(models.Order.id)
+                   .filter(models.Order.order_id == order_id)
+                   .with_for_update())
     order = db.scalar(
         select(models.Order)
         .options(
@@ -785,6 +819,8 @@ def _get_order(db: Session, order_id: str) -> models.Order:
             joinedload(models.Order.user),
         )
         .filter(models.Order.order_id == order_id)
+        # 锁等到之后必须覆盖 identity map 里的旧对象，否则读到的还是锁前的状态
+        .execution_options(populate_existing=lock)
     )
     if not order:
         raise ShopError(f"订单 {order_id} 不存在。", 404)
@@ -793,7 +829,7 @@ def _get_order(db: Session, order_id: str) -> models.Order:
 
 
 def pay_order(db: Session, order_id: str, channel: str) -> PayData:
-    order = _get_order(db, order_id)
+    order = _get_order(db, order_id, lock=True)
     auto_close_expired_orders(db, order.user)
     db.refresh(order)
     if order.status != rules.STATUS_PENDING_PAY:
@@ -821,7 +857,7 @@ def pay_order(db: Session, order_id: str, channel: str) -> PayData:
 
 
 def cancel_order(db: Session, order_id: str, reason: str) -> OrderActionResult:
-    order = _get_order(db, order_id)
+    order = _get_order(db, order_id, lock=True)
     if order.status not in rules.CANCELABLE_STATUS:
         raise ShopError(f"订单当前状态为「{order.status}」，无法取消。", 409)
 
@@ -867,7 +903,7 @@ def cancel_order(db: Session, order_id: str, reason: str) -> OrderActionResult:
 
 
 def receive_order(db: Session, order_id: str) -> OrderActionResult:
-    order = _get_order(db, order_id)
+    order = _get_order(db, order_id, lock=True)
     if not rules.can_transition(order.status, rules.STATUS_FINISHED):
         raise ShopError(f"订单当前状态为「{order.status}」，无法确认收货。", 409)
 
