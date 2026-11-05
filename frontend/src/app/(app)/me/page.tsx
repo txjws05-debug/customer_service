@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { getToken, getUser } from "@/lib/auth";
+import { getToken } from "@/lib/auth";
 import {
   commerceUserId,
   money,
@@ -250,7 +250,7 @@ export default function MePage() {
       router.replace("/login");
       return;
     }
-    setUser(commerceUserId(getUser()?.username));
+    setUser(commerceUserId());
   }, [router]);
 
   const load = useCallback(async () => {

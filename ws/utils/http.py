@@ -24,6 +24,10 @@ def reset_on_behalf(token: Token) -> None:
     _on_behalf.reset(token)
 
 
+def current_on_behalf() -> str | None:
+    return _on_behalf.get()
+
+
 # 初始化方法
 def init_http_client():
     global http_client

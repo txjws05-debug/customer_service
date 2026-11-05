@@ -18,34 +18,33 @@ from typing import Any
 from ws.config.config import settings
 from ws.utils.errors import ChatServiceError
 from ws.utils.http import (
+    current_on_behalf,
     delete_api_data,
     get_api_data,
     patch_api_data,
     post_api_data,
 )
 
-_MERCHANT_USER_PATTERN = re.compile(r"^u\d+$")
-
-
 # ============================================================ 用户映射
-def resolve_commerce_user(sender_id: str | None) -> str:
-    """把登录用户名映射成商城用户号。
+def current_commerce_user() -> str:
+    """本次对话代办的商城号（DialogueService 按账号绑定表注入，见 ws/utils/http.py）。
 
-    真实系统里这一步查「账号绑定」表（用户在个人中心绑定商城账号）。
-    演示环境用两条规则：
-    1) 登录名本身就是商城号（如 u1001）→ 直接用；
-    2) 否则用 COMMERCE_DEFAULT_USER_ID（默认 u1001），保证加购/下单能演示。
-    都不成立时抛业务错误，而不是随便拿一个账号去下单——那是把别人的订单
-    当成自己的，属于隐私与资损问题。
+    不再按用户名推算：那条规则让注册名叫 u1002 的人冒领 u1002，其余人共用 u1001。
+    没有绑定时抛业务错误，而不是随便拿一个账号去下单。
     """
-    candidate = (sender_id or "").strip()
-    if candidate and _MERCHANT_USER_PATTERN.match(candidate):
-        return candidate
-    fallback = (settings.commerce_default_user_id or "").strip()
-    if fallback:
-        return fallback
+    cuid = current_on_behalf()
+    if cuid:
+        return cuid
     raise ChatServiceError(
-        "还没有绑定商城账号，请先在个人中心绑定后，再让我帮你办理下单、售后这类操作。")
+        "还没有绑定商城账号，请重新登录后再让我帮你办理下单、售后这类操作。")
+
+
+async def provision_commerce_account(nickname: str) -> str:
+    """注册/首次登录时由中台开一个新的商城账号，返回商城号。不在对话里调用。"""
+    data = await post_api_data(shop_url("/users"), {"nickname": nickname})
+    if not isinstance(data, dict) or not data.get("user_id"):
+        raise ChatServiceError("开通商城账号失败，请稍后再试。")
+    return str(data["user_id"])
 
 
 # ============================================================ 接口快捷方式

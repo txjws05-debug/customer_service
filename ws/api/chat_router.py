@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 
 from ws.api.schemas import HistoryResponse
 from ws.api.schemas import ChatRequest, ChatResponse, ChatMessage, ChatObject, HistoryMessage
-from ws.api.deps import get_dialogue_service, get_current_user
+from ws.api.deps import get_commerce_user_id, get_dialogue_service, get_current_user
 from ws.domain.message import UserMessage,ProcessResult,BotMessage,MessageType,MessageObject
 from ws import metrics
 from ws.guard import quota
@@ -24,11 +24,12 @@ chat_router=APIRouter()
 @chat_router.post("/api/chat")
 async def chat(chat_request:ChatRequest ,
          current_user:str=Depends(get_current_user),
+         commerce_user_id:str|None=Depends(get_commerce_user_id),
          dialogue_service:DialogueService=Depends(get_dialogue_service)
          )->ChatResponse:
 
     _ensure_quota(current_user)
-    user_message:UserMessage=_build_user_message(chat_request,current_user)
+    user_message:UserMessage=_build_user_message(chat_request,current_user,commerce_user_id)
     try:
         process_result:ProcessResult=await dialogue_service.process_message(user_message)
     except ChatServiceError as exc:
@@ -46,9 +47,10 @@ async def chat(chat_request:ChatRequest ,
 @chat_router.post("/api/chat/stream")
 async def chat_stream(chat_request:ChatRequest,
                       current_user:str=Depends(get_current_user),
+                      commerce_user_id:str|None=Depends(get_commerce_user_id),
                       dialogue_service:DialogueService=Depends(get_dialogue_service)):
     _ensure_quota(current_user)
-    user_message:UserMessage=_build_user_message(chat_request,current_user)
+    user_message:UserMessage=_build_user_message(chat_request,current_user,commerce_user_id)
 
     async def event_generator():
         try:
@@ -77,9 +79,11 @@ def _ensure_quota(user: str) -> None:
 
 
 #ChatRequest转换 UserMessage
-def _build_user_message(chat_request:ChatRequest,sender_id:str)->UserMessage:
+def _build_user_message(chat_request:ChatRequest,sender_id:str,
+                        commerce_user_id:str|None=None)->UserMessage:
     return UserMessage(
          sender_id=sender_id,
+         commerce_user_id=commerce_user_id,
          message_id=chat_request.message_id
          if chat_request.message_id else str (uuid.uuid4()),
          type=MessageType.TEXT if chat_request.text else MessageType.OBJECT,

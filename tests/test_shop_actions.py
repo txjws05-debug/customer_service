@@ -27,7 +27,7 @@ from ws.task.flow.loader import FlowLoader
 from ws.task.flow.steps import ActionFlowStep, CollectSlotStep
 from ws.utils import http as http_module
 from ws.utils.errors import ChatServiceError
-from ws.utils.shop_client import parse_quantity, resolve_commerce_user
+from ws.utils.shop_client import parse_quantity
 
 FLOW_FILE = pathlib.Path(__file__).parents[1] / "ws" / "config" / "user_flows.yml"
 TRADE_FLOWS = [
@@ -61,8 +61,17 @@ def _state(sender_id: str = "u1002", slots: dict | None = None,
 
 
 def _run(action_name: str, state: DialogueState, **kwargs):
+    """模拟 DialogueService：这些用例里 sender_id 即其已绑定的商城号。"""
     runner = ActionRunner(_registry())
-    return asyncio.run(runner.run(ActionCall(action_name, kwargs), state))
+
+    async def go():
+        token = http_module.bind_on_behalf(state.sender_id)
+        try:
+            return await runner.run(ActionCall(action_name, kwargs), state)
+        finally:
+            http_module.reset_on_behalf(token)
+
+    return asyncio.run(go())
 
 
 @pytest.fixture()
@@ -186,21 +195,6 @@ def test_dialogue_engine_builds_with_trade_capabilities():
 
 
 # ============================================================ 用户映射与数量解析
-def test_resolve_commerce_user():
-    assert resolve_commerce_user("u1001") == "u1001"
-    # 登录名不是商城号时用配置的演示账号兜底
-    assert resolve_commerce_user("alice") == "u1001"
-    assert resolve_commerce_user(None) == "u1001"
-
-
-def test_resolve_commerce_user_without_binding(monkeypatch):
-    from ws.config.config import settings
-    monkeypatch.setattr(settings, "commerce_default_user_id", "")
-    with pytest.raises(ChatServiceError) as exc:
-        resolve_commerce_user("alice")
-    assert "绑定" in str(exc.value)
-
-
 def test_parse_quantity():
     assert parse_quantity("两件") == 2
     assert parse_quantity("3 个") == 3

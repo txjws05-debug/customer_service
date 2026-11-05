@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -22,7 +22,7 @@ from app import cache
 from app import idempotency
 from app import models
 from app import shop_rules as rules
-from app.ownership import ensure_order_scope, ensure_user_scope
+from app.ownership import ensure_order_scope, ensure_provisioner, ensure_user_scope
 from app.shop_schemas import (
     AddressCreateRequest,
     AddressData,
@@ -61,6 +61,28 @@ class ShopError(Exception):
 
 
 # ============================================================ 通用查询
+# 开户编号串行化用的 advisory lock 键（任意常量，只要库内唯一）
+_PROVISION_LOCK = 7310001
+
+
+def provision_user(db: Session, nickname: str) -> dict:
+    """分配一个全新的商城账号：u + (现有最大编号 + 1)，从 u1001 起。
+
+    编号由服务端生成、调用方无从指定；事务级 advisory lock 保证并发注册不撞号。
+    """
+    ensure_provisioner()
+    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _PROVISION_LOCK})
+    current = db.scalar(text(
+        "SELECT max(substring(user_id from 2)::bigint) FROM users "
+        "WHERE user_id ~ '^u[0-9]+$'"))
+    user_id = f"u{max(current or 1000, 1000) + 1}"
+    user = models.User(user_id=user_id, nickname=nickname, level="普通会员",
+                       mobile_masked="", created_at=rules.now())
+    db.add(user)
+    db.commit()
+    return {"user_id": user_id, "nickname": nickname}
+
+
 def get_user(db: Session, user_id: str) -> models.User:
     user = db.scalar(select(models.User).filter(models.User.user_id == user_id))
     if not user:

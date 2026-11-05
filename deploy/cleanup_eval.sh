@@ -46,6 +46,7 @@ fi
 docker exec "$PG" psql -U "$PGUSER" -d "$DB" -v ON_ERROR_STOP=1 \
     -c "delete from handoff_tickets where sender_id like 'eval\\_%'" \
     -c "delete from dialogue_states where sender_id like 'eval\\_%'" \
+    -c "delete from commerce_accounts where username like 'eval\\_%'" \
     -c "delete from users where username like 'eval\\_%'" >/dev/null
 
 left_users=$(q "select count(*) from users where username like 'eval\\_%'")

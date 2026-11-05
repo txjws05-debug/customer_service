@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ws.engine.dialogue_engine import DialogueEngine
 from ws.repository.dialogue_repository import DialogueRepository
 from ws.repository.handoff_repository import HandoffRepository
+from ws.repository.commerce_account_repository import CommerceAccountRepository
 from ws.service.handoff_service import HandoffService
 from ws.security.jwt import decode_access_token
 from ws.service.dialogue_service import DialogueService
@@ -28,6 +29,13 @@ async def get_current_user(
 async def get_session():
     async with database.session_factory() as session:
         yield session
+
+
+async def get_commerce_user_id(
+        current_user: str = Depends(get_current_user),
+        session: AsyncSession = Depends(get_session)) -> str | None:
+    """当前登录账号绑定的商城号；没绑定返回 None（中台会拒绝，不回落默认账号）。"""
+    return await CommerceAccountRepository(session).get_cuid(current_user)
 
 
 async def get_dialogue_engine(request: Request) -> DialogueEngine:

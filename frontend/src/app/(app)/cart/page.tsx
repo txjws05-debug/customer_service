@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { getToken, getUser } from "@/lib/auth";
+import { getToken } from "@/lib/auth";
 import {
   commerceUserId,
   money,
@@ -46,7 +46,7 @@ function couponBenefit(c: UserCoupon): string {
 export default function CartPage() {
   const router = useRouter();
 
-  const [user, setUser] = useState("u1001");
+  const [user, setUser] = useState("");
   const [cart, setCart] = useState<Cart | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [coupons, setCoupons] = useState<UserCoupon[]>([]);
@@ -90,6 +90,7 @@ export default function CartPage() {
    * 依赖只有 user，保证引用稳定，不会把调用它的 effect 反复触发。
    */
   const loadAll = useCallback(async () => {
+    if (!user) return;
     const id = ++reqId.current;
     try {
       const nextCart = await shop.cart(user);
@@ -121,7 +122,7 @@ export default function CartPage() {
       router.replace("/login");
       return;
     }
-    setUser(commerceUserId(getUser()?.username));
+    setUser(commerceUserId());
     let aliveOnce = true;
     (async () => {
       setLoading(true);

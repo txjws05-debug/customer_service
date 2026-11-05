@@ -11,7 +11,6 @@ import asyncio
 import httpx
 import pytest
 
-from ws.config.config import settings
 from ws.domain.message import MessageType, ProcessResult, UserMessage
 from ws.service.dialogue_service import DialogueService
 from ws.utils import http as http_module
@@ -58,9 +57,11 @@ def _service() -> DialogueService:
     return DialogueService(dialogue_repository=_Repo(), dialogue_engine=_Engine())
 
 
-def _msg(sender: str) -> UserMessage:
+def _msg(sender: str, cuid: str | None = "same") -> UserMessage:
+    """cuid 默认与 sender 同名（这些用例里账号已绑定同名商城号）；None = 未绑定。"""
     return UserMessage(sender_id=sender, message_id="m1",
-                       type=MessageType.TEXT, text="查一下 B20260409001")
+                       type=MessageType.TEXT, text="查一下 B20260409001",
+                       commerce_user_id=sender if cuid == "same" else cuid)
 
 
 def test_dialogue_calls_declare_the_user(seen):
@@ -76,10 +77,9 @@ def test_stream_dialogue_calls_declare_the_user(seen):
     assert seen[0].headers.get("x-on-behalf-of") == "u1003"
 
 
-def test_unbound_user_fails_closed(seen, monkeypatch):
+def test_unbound_user_fails_closed(seen):
     """查不到商城号：仍要带头（空值），让中台拒绝，而不是按特权身份放行。"""
-    monkeypatch.setattr(settings, "commerce_default_user_id", "")
-    asyncio.run(_service().process_message(_msg("alice")))
+    asyncio.run(_service().process_message(_msg("alice", cuid=None)))
     assert "x-on-behalf-of" in seen[0].headers
     assert seen[0].headers["x-on-behalf-of"] == ""
 

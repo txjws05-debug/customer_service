@@ -8,7 +8,7 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, Package, ShoppingCart, Star, Truck } from "lucide-react";
 import { toast } from "sonner";
 
-import { getToken, getUser } from "@/lib/auth";
+import { getToken } from "@/lib/auth";
 import {
   commerceUserId,
   money,
@@ -86,7 +86,7 @@ export default function ProductDetailPage({
 }) {
   const { productId } = use(params);
 
-  const [user, setUser] = useState("u1001");
+  const [user, setUser] = useState("");
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [reviewList, setReviewList] = useState<ReviewList | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,7 +105,7 @@ export default function ProductDetailPage({
       toast.error("登录状态已失效，请重新登录");
       return;
     }
-    setUser(commerceUserId(getUser()?.username));
+    setUser(commerceUserId());
   }, []);
 
   // 商品主体 + 评价：评价失败不影响主体展示

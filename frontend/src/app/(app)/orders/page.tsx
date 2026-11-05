@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
 import { ChevronRight, Loader2, Package, Star } from "lucide-react";
 import { toast } from "sonner";
 
-import { getToken, getUser } from "@/lib/auth";
+import { getToken } from "@/lib/auth";
 import {
   ORDER_STATUSES,
   commerceUserId,
@@ -133,7 +133,7 @@ export default function OrdersPage() {
       router.replace("/login");
       return;
     }
-    const account = commerceUserId(getUser()?.username);
+    const account = commerceUserId();
     setUser(account);
     const fromQuery = new URLSearchParams(window.location.search).get("status");
     if (fromQuery && TABS.includes(fromQuery)) setStatus(fromQuery);

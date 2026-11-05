@@ -10,6 +10,7 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     username: str
+    commerce_user_id: str | None = None
 
 
 class ChatObject(BaseModel):

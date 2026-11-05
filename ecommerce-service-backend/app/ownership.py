@@ -40,6 +40,18 @@ def ensure_user_scope(user_id: str) -> None:
         raise _shop_error("无权访问其他用户的数据。", 403)
 
 
+def ensure_provisioner() -> None:
+    """开户只认「不代表任何用户」的服务令牌（客服端注册流程）。
+
+    用户 JWT、运营令牌、代用户调用的服务令牌都不行：商城号只能由服务端分配，
+    任何能指定或批量制造商城号的入口，都会重新打开冒领与刷号的口子。
+    """
+    ctx = current_context()
+    if ctx.kind == "service" and not ctx.on_behalf:
+        return
+    raise _shop_error("无权开户。", 403)
+
+
 def ensure_order_scope(order) -> None:
     """校验当前身份能不能操作这笔订单。
 

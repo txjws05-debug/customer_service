@@ -143,12 +143,31 @@ def restore_stock(commerce_url: str, service_token: str,
     return changed
 
 
-def register(base: str, username: str, password: str) -> str:
+def register(base: str, username: str, password: str) -> tuple[str, str]:
+    """注册评测账号，返回 (JWT, 商城号)。商城号由中台开户分配，每个账号各不相同。"""
     status, data = _post(f"{base}/api/auth/register",
                          {"username": username, "password": password})
-    if status != 200 or "access_token" not in data:
+    if status != 200 or "access_token" not in data or not data.get("commerce_user_id"):
         raise SystemExit(f"注册测试账号失败：{status} {data}")
-    return data["access_token"]
+    return data["access_token"], data["commerce_user_id"]
+
+
+# 新开的商城号没有收货地址；不补的话下单类用例全部卡在「请先添加地址」，
+# 测到的就不是下单能力了。这份地址是评测夹具，不代表任何真实用户。
+EVAL_ADDRESS = {
+    "receiver_name": "评测用户", "phone_masked": "138****0000",
+    "province": "浙江省", "city": "杭州市", "district": "西湖区",
+    "detail": "评测路 1 号", "is_default": True,
+}
+
+
+def seed_address(commerce_url: str, service_token: str, shop_user: str) -> bool:
+    if not commerce_url or not service_token:
+        return False
+    headers = {"X-Service-Token": service_token, "Content-Type": "application/json"}
+    status, _ = _call("POST", f"{commerce_url}/shop/users/{shop_user}/addresses",
+                      headers, EVAL_ADDRESS)
+    return status == 200
 
 
 def reply_text(data: dict) -> str:
@@ -346,8 +365,6 @@ def main() -> int:
                         help="中台地址；给了就会在跑之前清空评测账号的购物车")
     parser.add_argument("--commerce-token", default=os.getenv("COMMERCE_SERVICE_TOKEN", ""),
                         help="中台服务令牌，默认取环境变量 COMMERCE_SERVICE_TOKEN")
-    parser.add_argument("--shop-user", default=os.getenv("COMMERCE_DEFAULT_USER_ID", "u1001"),
-                        help="评测账号实际对应的商城账号号")
     parser.add_argument("--reset-stock", action="store_true",
                         help="跑前快照库存、跑完还原（用例若下单会消耗库存）")
     args = parser.parse_args()
@@ -366,13 +383,9 @@ def main() -> int:
     if args.limit:
         cases = cases[: args.limit]
 
-    commerce_ctx = CommerceCtx(args.commerce_url, args.commerce_token, args.shop_user)
     username = f"eval_{uuid.uuid4().hex[:8]}"
     # 只用来打日志和事后清理；真正跑用例时每条会各自注册新账号（见下面循环）
     register(args.base_url, username, "eval-pass-123456")
-    removed = reset_cart(args.commerce_url, args.commerce_token, args.shop_user)
-    if removed:
-        print(f"已清空评测购物车 {removed} 条（避免上一轮残留影响本轮）")
     print(f"评测账号 {username}，用例 {len(cases)} 条，目标 {args.base_url}")
 
     stock_before = {}
@@ -387,9 +400,14 @@ def main() -> int:
             # 上一条没走完的任务会留到下一题：T43 停在售后流程里没退出，
             # T45 第一句「多少钱」就被当成售后槽位回答了 —— 两题一起判错，
             # 而且错得莫名其妙。注册不走模型，成本可以忽略。
-            case_token = register(
+            # 账号隔离后每个账号还各有一个新开的商城号，状态校验查的是它，
+            # 不再是所有人共用的 u1001 —— 那样上一条下的单会算进下一条的副作用里。
+            case_token, case_shop_user = register(
                 args.base_url, f"eval_{uuid.uuid4().hex[:8]}", "eval-pass-123456")
+            seed_address(args.commerce_url, args.commerce_token, case_shop_user)
+            commerce_ctx = CommerceCtx(args.commerce_url, args.commerce_token, case_shop_user)
             result = run_case(args.base_url, case_token, case, commerce_ctx)
+            result["shop_user"] = case_shop_user
             results.append(result)
             if not args.quiet:
                 flag = "PASS" if result["passed"] else "FAIL"

@@ -103,6 +103,11 @@ class CartData(BaseModel):
     selected_amount: Decimal
 
 
+# ---------------------------------------------------------------- 开户
+class UserProvisionRequest(BaseModel):
+    nickname: str = Field(min_length=1, max_length=100)
+
+
 # ---------------------------------------------------------------- 地址
 class AddressCreateRequest(BaseModel):
     receiver_name: str = Field(min_length=1, max_length=64)

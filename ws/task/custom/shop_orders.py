@@ -7,7 +7,7 @@ from ws.task.action.base import Action, ActionResult
 from ws.utils.errors import ChatServiceError
 from ws.utils.shop_client import (
     format_orders,
-    resolve_commerce_user,
+    current_commerce_user,
     shop_get,
     shop_post,
 )
@@ -18,7 +18,7 @@ class ListMyOrders(Action):
 
     async def run(self, state: DialogueState, action_kwargs: dict[str, Any]) -> ActionResult:
         slots = state.tasks.active.slots
-        user_id = resolve_commerce_user(state.sender_id)
+        user_id = current_commerce_user()
         status = (slots.get("order_status") or "").strip()
 
         path = f"/users/{user_id}/orders"

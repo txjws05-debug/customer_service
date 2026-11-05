@@ -118,3 +118,17 @@ def data_of(response) -> dict:
     payload = response.json()
     assert payload["code"] == 0, payload
     return payload["data"]
+
+
+@pytest.fixture()
+def enforced_service_token(monkeypatch):
+    """测试环境默认没配服务令牌、AUTH_ENFORCE=off，那样请求会被当成匿名放行，
+    断言就测不出东西。这里显式打开。"""
+    import dataclasses
+
+    from app import security
+
+    patched = dataclasses.replace(security.settings, service_token="svc-test",
+                                  auth_enforce="on")
+    monkeypatch.setattr(security, "settings", patched)
+    return "svc-test"

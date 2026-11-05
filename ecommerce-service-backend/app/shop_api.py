@@ -26,6 +26,7 @@ from app.shop_schemas import (
     PayRequest,
     PreviewRequest,
     CancelRequest,
+    UserProvisionRequest,
 )
 
 
@@ -66,6 +67,13 @@ def search_products(
             summary="商品详情（含全部在售规格）")
 def product_detail(product_id: str, db: Session = Depends(get_db)):
     return _wrap(svc.product_detail(db, product_id))
+
+
+# ============================================================ 开户
+@router.post("/users", response_model=ApiResponse, tags=["交易-账号"],
+             summary="开户：为新注册的客服账号分配商城账号（仅服务令牌）")
+def provision_user(payload: UserProvisionRequest, db: Session = Depends(get_db)):
+    return _wrap(svc.provision_user(db, payload.nickname))
 
 
 # ============================================================ 购物车

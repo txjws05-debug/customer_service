@@ -13,7 +13,7 @@ from ws.utils.shop_client import (
     fetch_default_sku,
     format_cart,
     parse_quantity,
-    resolve_commerce_user,
+    current_commerce_user,
     shop_get,
     shop_post,
 )
@@ -44,7 +44,7 @@ class AddToCart(Action):
 
     async def run(self, state: DialogueState, action_kwargs: dict[str, Any]) -> ActionResult:
         slots = state.tasks.active.slots
-        user_id = resolve_commerce_user(state.sender_id)
+        user_id = current_commerce_user()
         quantity = parse_quantity(slots.get("quantity"))
         sku_code, spec_text = await _resolve_sku(slots, state.share.focuse_object)
 
@@ -63,7 +63,7 @@ class ViewCart(Action):
     name = "action_view_cart"
 
     async def run(self, state: DialogueState, action_kwargs: dict[str, Any]) -> ActionResult:
-        user_id = resolve_commerce_user(state.sender_id)
+        user_id = current_commerce_user()
         cart = await shop_get(f"/users/{user_id}/cart")
         return ActionResult(slot_updates={
             "cart_summary": format_cart(cart),

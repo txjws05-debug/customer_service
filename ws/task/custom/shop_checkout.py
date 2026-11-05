@@ -22,7 +22,7 @@ MAX_ORDER_QUANTITY = 99
 from ws.utils.shop_client import (
     money,
     parse_quantity,
-    resolve_commerce_user,
+    current_commerce_user,
     shop_get,
     shop_post,
 )
@@ -34,7 +34,7 @@ class PlaceOrder(Action):
 
     async def run(self, state: DialogueState, action_kwargs: dict[str, Any]) -> ActionResult:
         slots = state.tasks.active.slots
-        user_id = resolve_commerce_user(state.sender_id)
+        user_id = current_commerce_user()
         mode = (action_kwargs or {}).get("mode", "cart")
 
         body: dict[str, Any] = {"user_id": user_id}

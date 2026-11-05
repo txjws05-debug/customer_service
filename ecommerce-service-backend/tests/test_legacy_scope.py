@@ -82,20 +82,6 @@ def test_service_token_still_crosses_users(client, db):
     assert resp.status_code == 200, resp.text
 
 
-@pytest.fixture()
-def enforced_service_token(monkeypatch):
-    """测试环境默认没配服务令牌、AUTH_ENFORCE=off，那样请求会被当成匿名放行，
-    断言就测不出东西。这里显式打开。"""
-    import dataclasses
-
-    from app import security
-
-    patched = dataclasses.replace(security.settings, service_token="svc-test",
-                                  auth_enforce="on")
-    monkeypatch.setattr(security, "settings", patched)
-    return "svc-test"
-
-
 def test_agent_on_behalf_cannot_read_others_order(client, db, enforced_service_token):
     """对话里报别人的订单号：Agent 代 u1001 调用，必须 404。"""
     other = _an_order_of(db, "u1002")

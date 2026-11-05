@@ -23,6 +23,8 @@ class UserMessage:
     type : MessageType
     text: str | None= None
     object: MessageObject | None=None
+    # 账号绑定表里查到的商城号；None = 没绑定（中台会拒绝，不回落）
+    commerce_user_id: str | None = None
 
 
 @dataclass

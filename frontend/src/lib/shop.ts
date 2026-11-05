@@ -540,15 +540,25 @@ export function money(value?: string | number | null): string {
 }
 
 /**
- * 当前登录用户对应的商城账号。
+ * 当前登录用户对应的商城账号：读登录令牌里服务端写入的 cuid。
  *
- * 规则必须与后端 ws/utils/shop_client.resolve_commerce_user 保持一致：
- * 登录名本身就是商城号（u1001）就用它，否则用演示默认账号 u1001。
- * 不一致会导致「页面上看到的购物车/订单，和在线客服操作的不是同一个」。
+ * 不再按用户名推算 —— 旧规则「用户名像 u1001 就当商城号、否则用 u1001」
+ * 让任何人注册一个 u1002 就能看到别人的订单，其余人全部共用 u1001。
+ * 这里只是取来拼 URL；真正的归属校验在中台，它认的也是同一个 cuid。
+ * 读不到（旧令牌、未登录）返回空串，调用方据此不发请求。
  */
-export function commerceUserId(username?: string | null): string {
-  const name = (username ?? "").trim();
-  return /^u\d+$/.test(name) ? name : "u1001";
+export function commerceUserId(): string {
+  const token = getToken();
+  const part = token?.split(".")[1];
+  if (!part) return "";
+  try {
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded));
+    return typeof payload.cuid === "string" ? payload.cuid : "";
+  } catch {
+    return "";
+  }
 }
 
 export const ORDER_STATUSES = [

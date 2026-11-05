@@ -18,7 +18,6 @@ import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 
 import { fetchHistory, streamChat, type ChatObject } from "@/lib/api";
-import { getUser } from "@/lib/auth";
 import { commerceUserId, money, shop, type OrderListItem } from "@/lib/shop";
 
 interface UIMessage {
@@ -205,7 +204,7 @@ export default function ChatPage() {
     if (myOrders.length > 0) return;
     setOrdersLoading(true);
     try {
-      const account = commerceUserId(getUser()?.username);
+      const account = commerceUserId();
       const data = await shop.orders(account);
       setMyOrders((data.orders ?? []).slice(0, 5));
     } catch (err) {

@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { getToken, getUser } from "@/lib/auth";
+import { getToken } from "@/lib/auth";
 import {
   AFTER_SALE_STATUS_LABEL,
   commerceUserId,
@@ -488,7 +488,7 @@ export default function OrderDetailPage({
       router.replace("/login");
       return;
     }
-    setUser(commerceUserId(getUser()?.username));
+    setUser(commerceUserId());
   }, [router]);
 
   const load = useCallback(async () => {

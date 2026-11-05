@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, Package, Search, Star } from "lucide-react";
 import { toast } from "sonner";
 
-import { getToken, getUser } from "@/lib/auth";
+import { getToken } from "@/lib/auth";
 import {
   commerceUserId,
   money,
@@ -129,7 +129,7 @@ function CardSkeleton() {
 export default function ShopPage() {
   const router = useRouter();
 
-  const [user, setUser] = useState("u1001");
+  const [user, setUser] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
 
   const [keyword, setKeyword] = useState("");
@@ -158,7 +158,7 @@ export default function ShopPage() {
       router.replace("/login");
       return;
     }
-    setUser(commerceUserId(getUser()?.username));
+    setUser(commerceUserId());
   }, [router]);
 
   // 类目只需要拉一次

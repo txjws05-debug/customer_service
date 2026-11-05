@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut, Menu } from "lucide-react";
 import { Sidebar } from "./Sidebar";
-import { getToken, getUser, removeToken } from "@/lib/auth";
+import { getToken, removeToken } from "@/lib/auth";
 import { commerceUserId } from "@/lib/shop";
 
 // 顶栏标题按路径取，页面本身不需要再声明标题
@@ -70,7 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const isChat = pathname.startsWith("/chat");
-  const account = commerceUserId(getUser()?.username);
+  const account = commerceUserId();
 
   return (
     <div className="flex h-screen overflow-hidden bg-subtle">

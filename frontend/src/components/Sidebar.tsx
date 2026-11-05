@@ -18,7 +18,6 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { getUser } from "@/lib/auth";
 import { commerceUserId } from "@/lib/shop";
 
 interface NavItem {
@@ -67,7 +66,7 @@ const NAV_SECTIONS: NavSection[] = [
 
 export function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void }) {
   const pathname = usePathname();
-  const account = commerceUserId(getUser()?.username);
+  const account = commerceUserId();
 
   const isActive = (item: NavItem) =>
     item.exact ? pathname === item.href : pathname === item.href ||
