@@ -2,7 +2,10 @@
 
 三种凭证，各管一段：
 
-- 服务令牌 `X-Service-Token`：客服 Agent 调中台时用，可跨用户操作；
+- 服务令牌 `X-Service-Token`：客服 Agent 调中台时用。单独出现时可跨用户操作
+  （评测脚本核对副作用要用）；带 `X-On-Behalf-Of: <cuid>` 时表示「代这个用户
+  办事」，权限降为该用户本人 —— 否则用户在对话里报别人的订单号，Agent 就会
+  拿特权身份把别人的订单和收货地址查出来；
 - 用户 JWT `Authorization: Bearer`：浏览器直连中台时用，只能碰自己的数据；
 - 运营令牌 `X-Operator-Token`：商家后台用，只保护 `/shop/admin/*`。
 
@@ -51,12 +54,15 @@ class AuthContext:
 
     kind: str                      # service | operator | user | anonymous
     subject: str = ""              # 服务名 / 运营 / 登录名
-    cuid: str | None = None        # 商城账号（u1001 这种），仅 user 有
+    cuid: str | None = None        # 商城账号（u1001 这种）：user，或代用户调用的 service
+    on_behalf: bool = False        # service 是否声明了 X-On-Behalf-Of
 
     @property
     def is_privileged(self) -> bool:
-        """服务与运营可以跨用户操作；普通用户只能碰自己的。"""
-        return self.kind in ("service", "operator")
+        """运营与「裸」服务令牌可以跨用户操作；代用户调用的服务令牌、普通用户只能碰自己的。"""
+        if self.kind == "operator":
+            return True
+        return self.kind == "service" and not self.on_behalf
 
 
 ANONYMOUS = AuthContext(kind="anonymous")
@@ -116,6 +122,11 @@ def decode_jwt(token: str, secret: str) -> dict | None:
 def resolve(request: Request) -> AuthContext:
     """按「服务令牌 → 运营令牌 → 用户 JWT」的顺序识别身份。"""
     if _safe_equals(request.headers.get("x-service-token"), settings.service_token):
+        on_behalf = request.headers.get("x-on-behalf-of")
+        if on_behalf is not None:
+            # 空值也算声明过：Agent 找不到用户的商城号时发空值，必须被拒，不能退回特权
+            return AuthContext(kind="service", subject="customer-service-agent",
+                               cuid=on_behalf.strip() or None, on_behalf=True)
         return AuthContext(kind="service", subject="customer-service-agent")
 
     if _safe_equals(request.headers.get("x-operator-token"), settings.operator_token):

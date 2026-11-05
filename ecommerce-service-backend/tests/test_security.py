@@ -203,3 +203,43 @@ def test_anonymous_keeps_legacy_behaviour(as_user):
 
     as_user(None, kind="anonymous")
     ensure_user_scope("u1002")  # AUTH_ENFORCE=off 期间的既有行为
+
+
+# ------------------------------------------------------- Agent 代用户调用
+# 服务令牌本身可跨用户（评测核对副作用要用），但 Agent 处理用户对话时必须带
+# X-On-Behalf-Of 声明「替谁办事」，此时按该用户的权限做对象级授权。
+def test_on_behalf_of_binds_cuid_and_drops_privilege(monkeypatch):
+    stub_settings(monkeypatch, service_token="svc-123")
+    ctx = resolve(make_request(x_service_token="svc-123", x_on_behalf_of="u1001"))
+    assert ctx.kind == "service"
+    assert ctx.cuid == "u1001"
+    assert not ctx.is_privileged
+
+
+def test_empty_on_behalf_of_fails_closed(monkeypatch):
+    """Agent 找不到用户的商城号时发空值：不能因此退回成特权身份。"""
+    stub_settings(monkeypatch, service_token="svc-123")
+    ctx = resolve(make_request(x_service_token="svc-123", x_on_behalf_of=""))
+    assert ctx.cuid is None
+    assert not ctx.is_privileged
+
+
+def test_on_behalf_of_without_service_token_is_ignored(monkeypatch):
+    stub_settings(monkeypatch, service_token="svc-123")
+    assert resolve(make_request(x_on_behalf_of="u1001")).kind == "anonymous"
+
+
+def test_agent_on_behalf_cannot_touch_other_users_data(monkeypatch):
+    from app.ownership import ensure_order_scope, ensure_user_scope
+
+    stub_settings(monkeypatch, service_token="svc-123")
+    security._current.set(resolve(
+        make_request(x_service_token="svc-123", x_on_behalf_of="u1001")))
+    ensure_user_scope("u1001")
+    ensure_order_scope(FakeOrder("SO1", "u1001"))
+    with pytest.raises(ShopError) as exc:
+        ensure_order_scope(FakeOrder("SO2", "u1002"))
+    assert exc.value.status_code == 404
+    with pytest.raises(ShopError) as exc:
+        ensure_user_scope("u1002")
+    assert exc.value.status_code == 403

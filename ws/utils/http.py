@@ -1,5 +1,6 @@
 import asyncio
 import re
+from contextvars import ContextVar, Token
 
 import httpx
 from httpx import AsyncClient
@@ -9,6 +10,18 @@ from ws.config.config import settings
 from ws.utils.logging_config import current_trace_id
 
 http_client: AsyncClient | None = None
+
+# 当前在替哪个商城账号办事。None = 不在用户对话里（启动、后台任务）；
+# "" = 在用户对话里但没有绑定商城号 —— 照样发头，让中台拒绝，不能退回特权身份。
+_on_behalf: ContextVar[str | None] = ContextVar("commerce_on_behalf", default=None)
+
+
+def bind_on_behalf(cuid: str | None) -> Token:
+    return _on_behalf.set(cuid or "")
+
+
+def reset_on_behalf(token: Token) -> None:
+    _on_behalf.reset(token)
 
 
 # 初始化方法
@@ -45,6 +58,10 @@ async def _request_api(method: str, url: str, json_body: dict | None = None) -> 
         # 中台按「服务令牌 → 运营令牌 → 用户 JWT」的顺序识别身份。
         # Agent 代表用户操作，必须用服务令牌，不能伪造用户 JWT。
         headers["X-Service-Token"] = settings.commerce_service_token
+    acting_for = _on_behalf.get()
+    if acting_for is not None:
+        # 裸服务令牌在中台可跨用户；对话里必须声明替谁办事，按该用户的权限校验归属
+        headers["X-On-Behalf-Of"] = acting_for
 
     try:
         response = await http_client.request(method, url, json=json_body, headers=headers)

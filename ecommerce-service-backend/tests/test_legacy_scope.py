@@ -80,3 +80,43 @@ def test_service_token_still_crosses_users(client, db):
         headers={"X-Service-Token": settings.service_token},
     )
     assert resp.status_code == 200, resp.text
+
+
+@pytest.fixture()
+def enforced_service_token(monkeypatch):
+    """测试环境默认没配服务令牌、AUTH_ENFORCE=off，那样请求会被当成匿名放行，
+    断言就测不出东西。这里显式打开。"""
+    import dataclasses
+
+    from app import security
+
+    patched = dataclasses.replace(security.settings, service_token="svc-test",
+                                  auth_enforce="on")
+    monkeypatch.setattr(security, "settings", patched)
+    return "svc-test"
+
+
+def test_agent_on_behalf_cannot_read_others_order(client, db, enforced_service_token):
+    """对话里报别人的订单号：Agent 代 u1001 调用，必须 404。"""
+    other = _an_order_of(db, "u1002")
+    for suffix in ("", "/status", "/logistics"):
+        resp = client.get(f"/orders/{other}{suffix}", headers={
+            "X-Service-Token": enforced_service_token, "X-On-Behalf-Of": "u1001"})
+        assert resp.status_code == 404, (suffix, resp.text)
+    resp = client.get(f"/shop/orders/{other}", headers={
+        "X-Service-Token": enforced_service_token, "X-On-Behalf-Of": "u1001"})
+    assert resp.status_code == 404, resp.text
+
+
+def test_agent_on_behalf_reads_own_order(client, db, enforced_service_token):
+    mine = _an_order_of(db, "u1001")
+    resp = client.get(f"/orders/{mine}/status", headers={
+        "X-Service-Token": enforced_service_token, "X-On-Behalf-Of": "u1001"})
+    assert resp.status_code == 200, resp.text
+
+
+def test_agent_on_behalf_cannot_reach_admin(client, enforced_service_token):
+    """订单号里塞 ../ 被规范化到 /shop/admin 时，代用户身份也进不去运营端。"""
+    resp = client.get("/shop/admin/orders", headers={
+        "X-Service-Token": enforced_service_token, "X-On-Behalf-Of": "u1001"})
+    assert resp.status_code == 403, resp.text

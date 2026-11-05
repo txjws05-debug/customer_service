@@ -3,6 +3,8 @@ from ws.domain.state import DialogueState
 from ws.engine.dialogue_engine import DialogueEngine
 from ws.repository.dialogue_repository import DialogueRepository
 from ws.service.handoff_service import HandoffService
+from ws.security.jwt import resolve_cuid
+from ws.utils.http import bind_on_behalf, reset_on_behalf
 
 class DialogueService:
     def __init__(self,dialogue_repository:DialogueRepository,dialogue_engine:DialogueEngine,
@@ -12,6 +14,14 @@ class DialogueService:
         # 可为空：纯单测里不需要人工接管
         self.handoff_service=handoff_service
     async def process_message(self,user_message:UserMessage)->ProcessResult:
+        # 本次对话里所有中台调用都以该用户身份做归属校验（见 ws/utils/http.py）
+        token = bind_on_behalf(resolve_cuid(user_message.sender_id))
+        try:
+            return await self._process_message(user_message)
+        finally:
+            reset_on_behalf(token)
+
+    async def _process_message(self,user_message:UserMessage)->ProcessResult:
         #根据用户id查找对话
         sender_id = user_message.sender_id
         # 人工接管优先于一切：已转人工或已有工单时不调 LLM
@@ -28,6 +38,18 @@ class DialogueService:
 
     # 流式处理：逐段 yield，结束后统一落库
     async def process_message_stream(self,user_message:UserMessage):
+        token = bind_on_behalf(resolve_cuid(user_message.sender_id))
+        try:
+            async for delta in self._process_message_stream(user_message):
+                yield delta
+        finally:
+            try:
+                reset_on_behalf(token)
+            except ValueError:
+                # 生成器被别的上下文收尾（客户端断开后 aclose）时 reset 会报错，忽略即可
+                pass
+
+    async def _process_message_stream(self,user_message:UserMessage):
         notice=await self._handoff_notice(user_message)
         if notice:
             yield notice
