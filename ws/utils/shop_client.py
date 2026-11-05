@@ -47,6 +47,19 @@ async def provision_commerce_account(nickname: str) -> str:
     return str(data["user_id"])
 
 
+# 订单号只允许字母数字（线上两种格式：SO+数字/十六进制、B/C+数字）。
+# 订单号来自大模型抽槽或 ChatRequest.object，都不可信；带 / . ? % 空格的一律拒绝，
+# 否则 "x/../../shop/admin/orders" 会被 httpx 规范化成运营端接口。
+_ORDER_REF = re.compile(r"^[A-Za-z0-9]{1,40}$")
+
+
+def order_ref(value: Any) -> str:
+    text = str(value or "").strip()
+    if not _ORDER_REF.fullmatch(text):
+        raise ChatServiceError("订单号格式不对，请核对后再发我（只包含字母和数字）。")
+    return text
+
+
 # ============================================================ 接口快捷方式
 def shop_url(path: str) -> str:
     """拼出交易域地址。path 以 / 开头，例如 /users/u1001/cart。"""
@@ -57,8 +70,9 @@ async def shop_get(path: str) -> Any:
     return await get_api_data(shop_url(path))
 
 
-async def shop_post(path: str, body: dict | None = None) -> Any:
-    return await post_api_data(shop_url(path), body)
+async def shop_post(path: str, body: dict | None = None, *,
+                    headers: dict | None = None) -> Any:
+    return await post_api_data(shop_url(path), body, headers)
 
 
 async def shop_patch(path: str, body: dict | None = None) -> Any:
@@ -214,5 +228,15 @@ async def fetch_default_sku(product_id: str) -> dict:
             if s.get("status") == "在售" and (s.get("stock") or 0) > 0]
     if not skus:
         raise ChatServiceError(f"「{detail.get('title', product_id)}」暂时没有可售规格。")
-    skus.sort(key=lambda s: s.get("price") or 0)
+    # 中台的价格是字符串，必须按数值比：字典序下 "10999.00" < "8999.00"，
+    # 会把 512G 当成最便宜的选中（多收 2000 元）。缺价/非法价排最后，不能当 0。
+    skus.sort(key=_price_key)
     return skus[0]
+
+
+def _price_key(sku: dict) -> Decimal:
+    try:
+        price = Decimal(str(sku.get("price")))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("Infinity")
+    return price if price.is_finite() and price >= 0 else Decimal("Infinity")

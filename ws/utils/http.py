@@ -28,6 +28,33 @@ def current_on_behalf() -> str | None:
     return _on_behalf.get()
 
 
+# 当前处理的用户消息 id：下单用它派生幂等键（同一条消息重发只建一张单）
+_message_id: ContextVar[str | None] = ContextVar("dialogue_message_id", default=None)
+
+
+def bind_message_id(message_id: str | None) -> Token:
+    return _message_id.set(message_id or None)
+
+
+def reset_message_id(token: Token) -> None:
+    _message_id.reset(token)
+
+
+def current_message_id() -> str | None:
+    return _message_id.get()
+
+
+# 路径里出现 `..` / `.` 段或编码后的斜杠、点：httpx 会把 `../` 规范化掉，
+# 拼进 URL 的订单号就能把请求带到别的接口（例如 /shop/admin/*）。逐处校验之外再兜一层。
+_UNSAFE_PATH = re.compile(r"/\.\.?(?:/|$)|%2[eEfF]|%5[cC]|\\")
+
+
+def _assert_safe_url(url: str) -> None:
+    path = httpx.URL(url).raw_path.decode("ascii", "replace").split("?", 1)[0]
+    if _UNSAFE_PATH.search(url.split("?", 1)[0]) or _UNSAFE_PATH.search(path):
+        raise ChatServiceError("请求参数格式不正确。")
+
+
 # 初始化方法
 def init_http_client():
     global http_client
@@ -41,7 +68,8 @@ async def close_http_client():
         http_client = None
 
 
-async def _request_api(method: str, url: str, json_body: dict | None = None) -> object:
+async def _request_api(method: str, url: str, json_body: dict | None = None,
+                       extra_headers: dict | None = None) -> object:
     """调用电商中台，返回响应体中的 data 字段。
 
     把网络错误、非 200、非法 JSON、缺少 data 等情况统一转成面向用户的
@@ -53,8 +81,9 @@ async def _request_api(method: str, url: str, json_body: dict | None = None) -> 
     """
     if http_client is None:
         raise ChatServiceError("系统正在启动中，请稍后再试。")
+    _assert_safe_url(url)
 
-    headers = {}
+    headers = dict(extra_headers or {})
     # 同一个 trace_id 继续往中台传：一次用户提问会横跨两个服务，
     # 只有 id 传下去，才能在两个容器的日志里把它们串成一条链路
     headers["X-Request-Id"] = current_trace_id()
@@ -108,9 +137,10 @@ async def get_api_data(url: str) -> object:
     return await _request_api("GET", url)
 
 
-async def post_api_data(url: str, json_body: dict | None = None) -> object:
+async def post_api_data(url: str, json_body: dict | None = None,
+                        headers: dict | None = None) -> object:
     """调用电商中台 POST 接口（加购、下单、支付、收货、售后等）。"""
-    return await _request_api("POST", url, json_body)
+    return await _request_api("POST", url, json_body, headers)
 
 
 async def patch_api_data(url: str, json_body: dict | None = None) -> object:

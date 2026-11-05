@@ -6,6 +6,7 @@ from ws.domain.state import DialogueState
 from ws.task.action.base import Action, ActionResult
 from ws.utils.errors import ChatServiceError
 from ws.utils.shop_client import (
+    order_ref,
     format_after_sale,
     current_commerce_user,
     shop_post,
@@ -45,7 +46,7 @@ class ApplyAfterSale(Action):
         if not reason:
             raise ChatServiceError("请简单说明一下申请售后的原因。")
 
-        ticket = await shop_post(f"/orders/{order_number}/after-sales", {
+        ticket = await shop_post(f"/orders/{order_ref(order_number)}/after-sales", {
             "user_id": user_id,
             "type": normalize_after_sale_type(slots.get("after_sale_type")),
             "reason": reason,

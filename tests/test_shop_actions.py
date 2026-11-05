@@ -85,6 +85,7 @@ def commerce(monkeypatch):
             "path": request.url.path,
             "query": dict(request.url.params),
             "json": json.loads(request.content) if request.content else None,
+            "headers": dict(request.headers),
         })
         route = recorder["routes"].get((request.method, request.url.path))
         if route is None:
@@ -520,3 +521,60 @@ def test_place_order_keeps_cart_mode_when_items_selected(commerce):
 
     body = [r for r in commerce["requests"] if r["method"] == "POST"][0]["json"]
     assert "items" not in body
+
+
+# ============================================================ 加固（独立审查）
+def test_place_order_sends_idempotency_key_derived_from_message(commerce):
+    """同一条消息被重发（前端超时重试、用户连点）只能建一张单。"""
+    commerce["routes"][("POST", "/shop/orders")] = _ok({
+        "order_id": "SO20261105001", "status": "待付款", "status_desc": "待付款",
+        "goods_amount": "798.00", "discount_amount": "0", "freight_amount": "0",
+        "pay_amount": "798.00", "expires_in_minutes": 30})
+    state = _state(slots={"sku_code": "SKU10005-01", "quantity": "1"})
+    token = http_module.bind_message_id("m-123")
+    try:
+        _run("action_place_order", state, mode="direct")
+    finally:
+        http_module.reset_message_id(token)
+    post = next(r for r in commerce["requests"] if r["method"] == "POST")
+    assert post["headers"].get("idempotency-key") == "agent-m-123"
+
+
+BAD_ORDER_NUMBERS = [
+    "x/../../shop/admin/orders",            # 被规范化成 /shop/admin/orders
+    "../admin/after-sales/AS1/complete?",   # ? 截掉后缀，变成运营端「完成售后」
+    "SO1%2F..%2F..",
+    "SO 1",
+]
+
+
+@pytest.mark.parametrize("action", [
+    "action_lookup_order_status", "action_lookup_logistics", "action_pay_order",
+    "action_confirm_receipt", "action_apply_after_sale"])
+@pytest.mark.parametrize("bad", BAD_ORDER_NUMBERS)
+def test_order_number_with_path_characters_never_reaches_shop(commerce, action, bad):
+    state = _state(slots={"order_number": bad, "after_sale_type": "refund_only",
+                          "after_sale_reason": "测试"})
+    with pytest.raises(ChatServiceError):
+        _run(action, state)
+    assert commerce["requests"] == [], commerce["requests"]
+
+
+def test_default_sku_compares_prices_as_numbers(commerce):
+    """价格是字符串："10999.00" < "8999.00"（字典序），256G 用户会被下成 512G、多付 2000。"""
+    from ws.utils.shop_client import fetch_default_sku
+
+    commerce["routes"][("GET", "/shop/products/SKU10001")] = _ok({
+        "product_id": "SKU10001", "title": "iPhone 15 Pro", "skus": [
+            {"sku_code": "SKU10001-03", "spec_text": "容量:512GB", "price": "10999.00",
+             "stock": 5, "status": "在售"},
+            {"sku_code": "SKU10001-01", "spec_text": "容量:256GB", "price": "8999.00",
+             "stock": 5, "status": "在售"},
+            # 缺价/非法价排最后，不能因为 `or 0` 被当成最便宜
+            {"sku_code": "SKU10001-99", "spec_text": "容量:1TB", "price": None,
+             "stock": 5, "status": "在售"},
+            {"sku_code": "SKU10001-98", "spec_text": "容量:2TB", "price": "待定",
+             "stock": 5, "status": "在售"},
+        ]})
+    picked = asyncio.run(fetch_default_sku("SKU10001"))
+    assert picked["sku_code"] == "SKU10001-01"

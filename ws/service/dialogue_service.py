@@ -3,7 +3,8 @@ from ws.domain.state import DialogueState
 from ws.engine.dialogue_engine import DialogueEngine
 from ws.repository.dialogue_repository import DialogueRepository
 from ws.service.handoff_service import HandoffService
-from ws.utils.http import bind_on_behalf, reset_on_behalf
+from ws.utils.http import (bind_message_id, bind_on_behalf, reset_message_id,
+                           reset_on_behalf)
 
 class DialogueService:
     def __init__(self,dialogue_repository:DialogueRepository,dialogue_engine:DialogueEngine,
@@ -15,9 +16,11 @@ class DialogueService:
     async def process_message(self,user_message:UserMessage)->ProcessResult:
         # 本次对话里所有中台调用都以该用户身份做归属校验（见 ws/utils/http.py）
         token = bind_on_behalf(user_message.commerce_user_id)
+        msg_token = bind_message_id(user_message.message_id)
         try:
             return await self._process_message(user_message)
         finally:
+            reset_message_id(msg_token)
             reset_on_behalf(token)
 
     async def _process_message(self,user_message:UserMessage)->ProcessResult:
@@ -38,11 +41,13 @@ class DialogueService:
     # 流式处理：逐段 yield，结束后统一落库
     async def process_message_stream(self,user_message:UserMessage):
         token = bind_on_behalf(user_message.commerce_user_id)
+        msg_token = bind_message_id(user_message.message_id)
         try:
             async for delta in self._process_message_stream(user_message):
                 yield delta
         finally:
             try:
+                reset_message_id(msg_token)
                 reset_on_behalf(token)
             except ValueError:
                 # 生成器被别的上下文收尾（客户端断开后 aclose）时 reset 会报错，忽略即可

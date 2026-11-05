@@ -1,5 +1,6 @@
 from typing import Any
 
+from ws.utils.shop_client import order_ref
 from ws.config.config import settings
 from ws.domain.state import DialogueState
 from ws.task.action.base import Action, ActionResult
@@ -22,7 +23,7 @@ class LookupOrderStatus(Action):
 
         # 2 调用中台接口，网络/状态码/JSON 异常由 get_api_data 统一处理
         data = await get_api_data(
-            f"{settings.commerce_api_base_url}/orders/{order_number}/status")
+            f"{settings.commerce_api_base_url}/orders/{order_ref(order_number)}/status")
 
         # 3 校验返回字段，避免 KeyError
         if not isinstance(data, dict) or not data.get("status"):

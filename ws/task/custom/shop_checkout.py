@@ -11,6 +11,7 @@
 import re
 from typing import Any
 
+from ws.utils.http import current_message_id
 from ws.domain.state import DialogueState
 from ws.task.action.base import Action, ActionResult
 from ws.utils.errors import ChatServiceError
@@ -20,6 +21,7 @@ from ws.utils.errors import ChatServiceError
 MAX_ORDER_QUANTITY = 99
 
 from ws.utils.shop_client import (
+    order_ref,
     money,
     parse_quantity,
     current_commerce_user,
@@ -73,7 +75,10 @@ class PlaceOrder(Action):
             slots["sku_spec"] = spec_text
             slots["quantity"] = quantity
 
-        order = await shop_post("/orders", body)
+        # 幂等键取自当前消息：前端超时重发或用户连点，中台只建一张单
+        message_id = current_message_id()
+        headers = {"Idempotency-Key": f"agent-{message_id}"[:64]} if message_id else None
+        order = await shop_post("/orders", body, headers=headers)
 
         discount = order.get("discount_amount")
         freight = order.get("freight_amount")
@@ -104,7 +109,7 @@ class PayOrder(Action):
             raise ChatServiceError("请告诉我需要支付的订单号。")
         channel = (slots.get("pay_channel") or "wechat").strip()
 
-        paid = await shop_post(f"/orders/{order_number}/pay", {"channel": channel})
+        paid = await shop_post(f"/orders/{order_ref(order_number)}/pay", {"channel": channel})
         summary = (f"订单 {paid['order_id']} 支付成功，"
                    f"支付金额 {money(paid.get('amount'))}，交易号 {paid.get('trade_no')}。"
                    f"当前状态：{paid.get('status_desc')}")

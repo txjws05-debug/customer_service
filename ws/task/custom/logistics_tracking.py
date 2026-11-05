@@ -1,5 +1,6 @@
 from typing import Any
 
+from ws.utils.shop_client import order_ref
 from ws.config.config import settings
 from ws.domain.state import DialogueState
 from ws.task.action.base import Action, ActionResult
@@ -20,7 +21,7 @@ class LookupTracking(Action):
         if not order_number:
             raise ChatServiceError("缺少订单号，无法查询物流。")
 
-        url = f"{settings.commerce_api_base_url}/orders/{order_number}/logistics"
+        url = f"{settings.commerce_api_base_url}/orders/{order_ref(order_number)}/logistics"
         data = await get_api_data(url)
 
         # 物流单号是后续展示的必需字段

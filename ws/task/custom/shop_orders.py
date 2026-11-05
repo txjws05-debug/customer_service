@@ -6,6 +6,7 @@ from ws.domain.state import DialogueState
 from ws.task.action.base import Action, ActionResult
 from ws.utils.errors import ChatServiceError
 from ws.utils.shop_client import (
+    order_ref,
     format_orders,
     current_commerce_user,
     shop_get,
@@ -40,7 +41,7 @@ class ConfirmReceipt(Action):
         if not order_number:
             raise ChatServiceError("请告诉我需要确认收货的订单号。")
 
-        received = await shop_post(f"/orders/{order_number}/receive")
+        received = await shop_post(f"/orders/{order_ref(order_number)}/receive")
         earned = received.get("earned_points") or 0
         summary = (f"订单 {received['order_id']} 已确认收货，"
                    f"订单状态：{received.get('status')}。")

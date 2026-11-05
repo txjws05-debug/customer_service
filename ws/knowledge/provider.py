@@ -4,6 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from ws.utils.shop_client import order_ref
 from ws.config.config import settings
 from ws.domain.message import UserMessage
 from ws.domain.state import DialogueState
@@ -73,6 +74,7 @@ class ApiOrderProvider(KnowledgeProvider):
         if order_id is None:
             raise ChatServiceError(
                 "请先在页面选择要咨询的订单，再向我提问。")
+        order_id = order_ref(order_id)  # 来自 ChatRequest.object，不可信
 
         # 调用查询订单详情接口
         order_url = (f"{settings.commerce_api_base_url}"
