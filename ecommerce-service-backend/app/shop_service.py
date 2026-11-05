@@ -846,16 +846,23 @@ def cancel_order(db: Session, order_id: str, reason: str) -> OrderActionResult:
         user_coupon.order_id = None
         user_coupon.used_at = None
 
+    # 已付款（待发货）取消：全额原路退回，与取消同一事务 —— 不能出现「单取消了、钱没退」
+    from app.refunds import record_refund
+
+    refunded = record_refund(db, order, order.payable, source="order_cancel",
+                             reason=reason or "用户取消订单")
+
     from_status = order.status
     order.status = rules.STATUS_CANCELED
     order.status_desc = rules.describe(rules.STATUS_CANCELED)
     order.close_reason = reason
-    _log_status(db, order, from_status, order.status, "user", reason)
+    remark = f"{reason}；已原路退款 {refunded}" if refunded else reason
+    _log_status(db, order, from_status, order.status, "user", remark)
     db.commit()
     cache.bump("dynamic")
     return OrderActionResult(
         order_id=order.order_id, status=order.status, status_desc=order.status_desc,
-        pay_amount=order.payable,
+        pay_amount=order.payable, refund_amount=refunded,
     )
 
 

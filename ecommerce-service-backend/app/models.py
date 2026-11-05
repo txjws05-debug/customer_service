@@ -254,6 +254,25 @@ class Payment(Base):
     paid_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class Refund(Base):
+    """退款流水：取消已付款订单、售后完成都在这里记一笔。
+
+    钱退没退、退了多少，只认这张表；payments.status 在累计退满时置为 refunded。
+    """
+
+    __tablename__ = "refunds"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    refund_no: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
+    payment_id: Mapped[int] = mapped_column(ForeignKey("payments.id"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    source: Mapped[str] = mapped_column(String(16))  # order_cancel / after_sale / backfill
+    ticket_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reason: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class LogisticsRecord(Base):
     __tablename__ = "logistics_records"
 

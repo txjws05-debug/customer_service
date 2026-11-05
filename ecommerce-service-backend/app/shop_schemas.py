@@ -270,6 +270,7 @@ class OrderActionResult(BaseModel):
     refunded_points: int = 0
     earned_points: int = 0
     pay_amount: Decimal | None = None
+    refund_amount: Decimal = Decimal("0")
 
 
 # ---------------------------------------------------------------- 优惠券与积分

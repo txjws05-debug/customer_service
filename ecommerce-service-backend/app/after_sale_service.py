@@ -206,6 +206,11 @@ def complete_after_sale(
                     reason="after_sale_return", order_id=order.id, created_at=rules.now(),
                 ))
 
+    from app.refunds import record_refund
+
+    record_refund(db, ticket.order, ticket.refund_amount, source="after_sale",
+                  reason=ticket.reason, ticket_no=ticket.ticket_no)
+
     ticket.status = rules.AS_COMPLETED
     if remark:
         ticket.remark = remark
