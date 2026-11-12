@@ -555,7 +555,12 @@ export default function OrderDetailPage({
         order.order_id,
         cancelReason.trim() || "用户主动取消",
       );
-      toast.success(`订单已取消（${result.status_desc}），库存与优惠券已归还`);
+      const refunded = Number(result.refund_amount ?? 0);
+      toast.success(
+        refunded > 0
+          ? `订单已取消，已原路退款 ${money(result.refund_amount)}；库存与优惠券已归还`
+          : `订单已取消（${result.status_desc}），库存与优惠券已归还`,
+      );
       await load();
     } catch (err) {
       toast.error((err as Error).message);

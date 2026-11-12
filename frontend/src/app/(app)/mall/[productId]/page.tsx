@@ -3,7 +3,7 @@
 // 商品详情页：浅色风格（白底 + slate + indigo）。
 // Next.js 16 的 params 是 Promise，客户端组件里用 use() 解包。
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Package, ShoppingCart, Star, Truck } from "lucide-react";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ import { getToken } from "@/lib/auth";
 import {
   commerceUserId,
   money,
+  newIdempotencyKey,
   shop,
   type ProductDetail,
   type Review,
@@ -95,6 +96,8 @@ export default function ProductDetailPage({
   const [quantity, setQuantity] = useState(1);
   const [adding, setAdding] = useState(false);
   const [buying, setBuying] = useState(false);
+  // 一次「立即购买」的幂等键：成功前重试都复用它，成功后清空
+  const buyKeyRef = useRef<string | null>(null);
   const [coverFailed, setCoverFailed] = useState(false);
   const [addedToCart, setAddedToCart] = useState(false);
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
@@ -191,10 +194,12 @@ export default function ProductDetailPage({
     }
     setBuying(true);
     try {
+      buyKeyRef.current ??= newIdempotencyKey();
       const order = await shop.createOrder({
         user_id: user,
         items: [{ sku_code: selectedSku.sku_code, quantity }],
-      });
+      }, buyKeyRef.current);
+      buyKeyRef.current = null;
       setCreatedOrderId(order.order_id);
       toast.success(`下单成功，订单号 ${order.order_id}（${order.status_desc}）`);
     } catch (err) {

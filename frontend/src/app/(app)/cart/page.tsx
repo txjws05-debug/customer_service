@@ -23,6 +23,7 @@ import { getToken } from "@/lib/auth";
 import {
   commerceUserId,
   money,
+  newIdempotencyKey,
   shop,
   type Address,
   type AmountPreview,
@@ -56,6 +57,8 @@ export default function CartPage() {
   const [busyItemId, setBusyItemId] = useState<number | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // 一次「提交订单」的幂等键：成功前重试都复用它，成功后清空
+  const orderKeyRef = useRef<string | null>(null);
   const [previewError, setPreviewError] = useState("");
 
   const [couponCode, setCouponCode] = useState("");
@@ -218,11 +221,13 @@ export default function CartPage() {
     }
     setSubmitting(true);
     try {
+      orderKeyRef.current ??= newIdempotencyKey();
       const order = await shop.createOrder({
         user_id: user,
         address_id: addressId ?? undefined,
         coupon_code: couponCode || undefined,
-      });
+      }, orderKeyRef.current);
+      orderKeyRef.current = null;
       setCreatedOrderId(order.order_id);
       // 结算成功后本地状态清空，再拉一次拿后端的最新购物车
       setPreview(null);

@@ -257,6 +257,8 @@ export interface OrderActionResult {
   refunded_points: number;
   earned_points: number;
   pay_amount?: string | null;
+  /** 取消已付款订单时中台同事务原路退回的金额；未付款为 "0" */
+  refund_amount?: string | null;
 }
 
 export interface AfterSaleTicket {
@@ -465,9 +467,18 @@ export const shop = {
   orders: (user: string, status?: string) =>
     get<OrderList>(`/users/${user}/orders${qs({ status })}`),
   order: (orderId: string) => get<OrderDetail>(`/orders/${orderId}`),
+  /**
+   * 下单。idempotencyKey 由调用方在「一次提交意图」内保持不变：网络超时后重试、
+   * 连点两次都带同一个键，中台只建一张单并回放结果；下单成功后再换新键。
+   */
   createOrder: (body: { user_id: string; address_id?: number; coupon_code?: string;
-                        items?: { sku_code: string; quantity: number }[] }) =>
-    post<OrderCreated>("/orders", body),
+                        items?: { sku_code: string; quantity: number }[] },
+                idempotencyKey?: string) =>
+    request<OrderCreated>("/orders", {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {},
+    }),
   payOrder: (orderId: string, channel = "wechat") =>
     post<PayResult>(`/orders/${orderId}/pay`, { channel }),
   cancelOrder: (orderId: string, reason = "用户主动取消") =>
@@ -533,6 +544,15 @@ export const shop = {
 
 // ============================================================ 辅助
 /** 金额展示：后端金额是字符串，直接拼 ¥ 即可，不做浮点运算。 */
+/** 生成一次提交用的幂等键。randomUUID 需要安全上下文（HTTPS/localhost），否则退回随机串。 */
+export function newIdempotencyKey(): string {
+  const c = typeof crypto !== "undefined" ? crypto : undefined;
+  const id = c && "randomUUID" in c
+    ? c.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  return `web-${id}`;
+}
+
 export function money(value?: string | number | null): string {
   if (value === undefined || value === null || value === "") return "¥0.00";
   const text = String(value);
