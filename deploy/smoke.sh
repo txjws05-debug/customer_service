@@ -13,13 +13,16 @@
 # 对话功能需要登录态，不放进 smoke（否则每次都要带密码，跑不起来）。
 set -uo pipefail
 
-BASE=${BASE_URL:-http://127.0.0.1}
+# 2026-11-10 起 Caddy 按域名提供 HTTPS，HTTP 一律 308 跳转；按 127.0.0.1 访问会全部拿到 308。
+# 默认用域名访问，并用 --resolve 指到本机，检查的仍是这台机器上的 Caddy，同时校验证书。
+BASE=${BASE_URL:-https://txjws.dpdns.org}
+RESOLVE=${SMOKE_RESOLVE-txjws.dpdns.org:443:127.0.0.1}   # 置空即不做本机解析
 fail=0
 
 check() {  # check <名称> <期望状态码> <路径> [方法]
     local name=$1 expect=$2 path=$3 method=${4:-GET}
     local code
-    code=$(curl -s -o /dev/null -m 10 -X "$method" -w '%{http_code}' "$BASE$path")
+    code=$(curl -s -o /dev/null -m 10 ${RESOLVE:+--resolve "$RESOLVE"} -X "$method" -w '%{http_code}' "$BASE$path")
     if [ "$code" = "$expect" ]; then
         printf '  [PASS] %-28s %s\n' "$name" "$code"
     else
